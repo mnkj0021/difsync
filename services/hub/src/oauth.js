@@ -44,15 +44,23 @@ CREATE TABLE IF NOT EXISTS oauth_tokens (
 CREATE INDEX IF NOT EXISTS idx_oauth_tokens_user ON oauth_tokens(user_id, expires_at);
 `);
 
+for (const [table, column] of [["oauth_codes","resource"],["oauth_tokens","resource"]]) {
+  try {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} TEXT NOT NULL DEFAULT ''`);
+  } catch (error) {
+    if (!String(error?.message || error).includes("duplicate column name")) throw error;
+  }
+}
+
 const q = {
   client: db.prepare("SELECT * FROM oauth_clients WHERE client_id=? LIMIT 1"),
   insertClient: db.prepare("INSERT INTO oauth_clients (client_id,client_name,redirect_uris_json,token_endpoint_auth_method,created_at) VALUES (?,?,?,?,?)"),
   session: db.prepare("SELECT s.user_id,u.email,u.display_name FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=? AND s.expires_at>? LIMIT 1"),
   userByEmail: db.prepare("SELECT id,email,display_name,password_hash FROM users WHERE lower(email)=? LIMIT 1"),
-  insertCode: db.prepare("INSERT INTO oauth_codes (code_hash,client_id,user_id,redirect_uri,scope,code_challenge,expires_at,used_at) VALUES (?,?,?,?,?,?,?,'')"),
+  insertCode: db.prepare("INSERT INTO oauth_codes (code_hash,client_id,user_id,redirect_uri,scope,code_challenge,resource,expires_at,used_at) VALUES (?,?,?,?,?,?,?,?,'')"),
   code: db.prepare("SELECT * FROM oauth_codes WHERE code_hash=? AND used_at='' AND expires_at>? LIMIT 1"),
   useCode: db.prepare("UPDATE oauth_codes SET used_at=? WHERE code_hash=? AND used_at=''"),
-  insertToken: db.prepare("INSERT INTO oauth_tokens (access_hash,refresh_hash,client_id,user_id,scope,created_at,expires_at,refresh_expires_at,revoked_at) VALUES (?,?,?,?,?,?,?,?, '')"),
+  insertToken: db.prepare("INSERT INTO oauth_tokens (access_hash,refresh_hash,client_id,user_id,scope,resource,created_at,expires_at,refresh_expires_at,revoked_at) VALUES (?,?,?,?,?,?,?,?,?, '')"),
   refresh: db.prepare("SELECT * FROM oauth_tokens WHERE refresh_hash=? AND revoked_at='' AND refresh_expires_at>? LIMIT 1"),
   revokeRefresh: db.prepare("UPDATE oauth_tokens SET revoked_at=? WHERE refresh_hash=? AND revoked_at=''"),
   revokeAccess: db.prepare("UPDATE oauth_tokens SET revoked_at=? WHERE access_hash=? AND revoked_at=''"),
@@ -116,19 +124,20 @@ function validateAuthorize(params) {
     clientId,
     redirectUri,
     scope: normalizeScope(params.scope),
+    resource: safeRedirect(params.resource || (config.appOrigin + "/mcp")),
     challenge,
     state: String(params.state || "")
   };
 }
 
-function issueToken({ clientId, userId, scope }) {
+function issueToken({ clientId, userId, scope, resource }) {
   const access = randomToken(40);
   const refresh = randomToken(48);
   const stamp = now();
   const expiresAt = Date.now() + ACCESS_TTL_MS;
   const refreshExpiresAt = Date.now() + REFRESH_TTL_MS;
   q.insertToken.run(
-    tokenDigest(access), tokenDigest(refresh), clientId, userId, scope,
+    tokenDigest(access), tokenDigest(refresh), clientId, userId, scope, resource,
     stamp, expiresAt, refreshExpiresAt
   );
   return {
@@ -146,6 +155,7 @@ function authorizePage(ctx, user, error = "") {
     ["client_id", ctx.clientId],
     ["redirect_uri", ctx.redirectUri],
     ["scope", ctx.scope],
+    ["resource", ctx.resource],
     ["state", ctx.state],
     ["code_challenge", ctx.challenge],
     ["code_challenge_method", "S256"]
@@ -196,6 +206,7 @@ function installOAuth(app) {
       token_endpoint: config.appOrigin + "/oauth/token",
       registration_endpoint: config.appOrigin + "/oauth/register",
       revocation_endpoint: config.appOrigin + "/oauth/revoke",
+      authorization_response_iss_parameter_supported: true,
       response_types_supported: ["code"],
       grant_types_supported: ["authorization_code", "refresh_token"],
       token_endpoint_auth_methods_supported: ["none"],
@@ -216,6 +227,8 @@ function installOAuth(app) {
         client_id: clientId,
         client_name: name,
         redirect_uris: uris,
+        grant_types: ["authorization_code", "refresh_token"],
+        response_types: ["code"],
         token_endpoint_auth_method: "none"
       });
     } catch (error) {
@@ -239,6 +252,7 @@ function installOAuth(app) {
         client_id: String(req.body?.client_id || ""),
         redirect_uri: String(req.body?.redirect_uri || ""),
         scope: String(req.body?.scope || ""),
+        resource: String(req.body?.resource || ""),
         has_email: Boolean(req.body?.email),
         has_password: Boolean(req.body?.password)
       });
@@ -253,9 +267,10 @@ function installOAuth(app) {
         user = { user_id: row.id, email: row.email, display_name: row.display_name };
       }
       const code = randomToken(36);
-      q.insertCode.run(tokenDigest(code), ctx.clientId, user.user_id, ctx.redirectUri, ctx.scope, ctx.challenge, Date.now() + CODE_TTL_MS);
+      q.insertCode.run(tokenDigest(code), ctx.clientId, user.user_id, ctx.redirectUri, ctx.scope, ctx.challenge, ctx.resource, Date.now() + CODE_TTL_MS);
       const target = new URL(ctx.redirectUri);
       target.searchParams.set("code", code);
+      target.searchParams.set("iss", config.appOrigin);
       if (ctx.state) target.searchParams.set("state", ctx.state);
       console.log("[DifSync OAuth] authorization code issued", {
         client_id: ctx.clientId,
@@ -277,6 +292,7 @@ function installOAuth(app) {
       grant_type: grant,
       client_id: String(req.body?.client_id || ""),
       redirect_uri: String(req.body?.redirect_uri || ""),
+      resource: String(req.body?.resource || ""),
       has_code: Boolean(req.body?.code),
       has_verifier: Boolean(req.body?.code_verifier),
       has_refresh_token: Boolean(req.body?.refresh_token)
@@ -299,6 +315,16 @@ function installOAuth(app) {
         console.error("[DifSync OAuth] token failed: redirect_uri mismatch", { received: tokenRedirect, expected: code.redirect_uri });
         return res.status(400).json({ error: "invalid_grant" });
       }
+      let tokenResource;
+      try { tokenResource = safeRedirect(req.body?.resource || code.resource); }
+      catch {
+        console.error("[DifSync OAuth] token failed: invalid resource");
+        return res.status(400).json({ error: "invalid_target" });
+      }
+      if (!code.resource || tokenResource !== code.resource) {
+        console.error("[DifSync OAuth] token failed: resource mismatch", { received: tokenResource, expected: code.resource });
+        return res.status(400).json({ error: "invalid_target" });
+      }
       const verifier = String(req.body?.code_verifier || "");
       if (!verifier || b64urlSha256(verifier) !== code.code_challenge) {
         console.error("[DifSync OAuth] token failed: PKCE verification failed");
@@ -308,7 +334,7 @@ function installOAuth(app) {
         console.error("[DifSync OAuth] token failed: authorization code already used");
         return res.status(400).json({ error: "invalid_grant" });
       }
-      const issued = issueToken({ clientId: code.client_id, userId: code.user_id, scope: code.scope });
+      const issued = issueToken({ clientId: code.client_id, userId: code.user_id, scope: code.scope, resource: code.resource });
       console.log("[DifSync OAuth] token issued", { client_id: code.client_id, user_id: code.user_id, scope: code.scope });
       return res.json(issued);
     }
@@ -318,7 +344,7 @@ function installOAuth(app) {
       if (!row) return res.status(400).json({ error: "invalid_grant" });
       if (String(req.body?.client_id || "") !== row.client_id) return res.status(400).json({ error: "invalid_client" });
       q.revokeRefresh.run(now(), row.refresh_hash);
-      return res.json(issueToken({ clientId: row.client_id, userId: row.user_id, scope: row.scope }));
+      return res.json(issueToken({ clientId: row.client_id, userId: row.user_id, scope: row.scope, resource: row.resource }));
     }
 
     return res.status(400).json({ error: "unsupported_grant_type" });
