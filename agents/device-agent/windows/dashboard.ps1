@@ -42,7 +42,7 @@ function New-Label([string]$text, [int]$x, [int]$y, [int]$w, [int]$h, [float]$si
   $label.ForeColor = $color
   $label.BackColor = [System.Drawing.Color]::Transparent
   $fontStyle = if ($bold) { [System.Drawing.FontStyle]::Bold } else { [System.Drawing.FontStyle]::Regular }
-  $label.Font = New-Object System.Drawing.Font -ArgumentList "Segoe UI",$size,$fontStyle
+  $label.Font = [System.Drawing.Font]::new("Segoe UI", [single]$size, [System.Drawing.FontStyle]$fontStyle, [System.Drawing.GraphicsUnit]::Point)
   return $label
 }
 
@@ -137,7 +137,7 @@ $toggleButton.FlatStyle = "Flat"
 $toggleButton.FlatAppearance.BorderSize = 0
 $toggleButton.BackColor = [System.Drawing.Color]::FromArgb(232,237,243)
 $toggleButton.ForeColor = [System.Drawing.Color]::FromArgb(16,21,27)
-$toggleButton.Font = New-Object System.Drawing.Font -ArgumentList "Segoe UI",9,[System.Drawing.FontStyle]::Bold
+$toggleButton.Font = [System.Drawing.Font]::new("Segoe UI", [single]9, [System.Drawing.FontStyle]::Bold, [System.Drawing.GraphicsUnit]::Point)
 $form.Controls.Add($toggleButton)
 
 $webButton = New-Object System.Windows.Forms.Button
@@ -149,7 +149,7 @@ $webButton.FlatAppearance.BorderColor = $line
 $webButton.FlatAppearance.BorderSize = 1
 $webButton.BackColor = [System.Drawing.Color]::FromArgb(21,29,39)
 $webButton.ForeColor = $text
-$webButton.Font = New-Object System.Drawing.Font -ArgumentList "Segoe UI",9,[System.Drawing.FontStyle]::Bold
+$webButton.Font = [System.Drawing.Font]::new("Segoe UI", [single]9, [System.Drawing.FontStyle]::Bold, [System.Drawing.GraphicsUnit]::Point)
 $form.Controls.Add($webButton)
 
 $trayCheck = New-Object System.Windows.Forms.CheckBox
@@ -159,7 +159,7 @@ $trayCheck.Text = "Minimize to tray"
 $trayCheck.Checked = $true
 $trayCheck.ForeColor = $muted
 $trayCheck.BackColor = $bg
-$trayCheck.Font = New-Object System.Drawing.Font -ArgumentList "Segoe UI",8
+$trayCheck.Font = [System.Drawing.Font]::new("Segoe UI", [single]8, [System.Drawing.FontStyle]::Regular, [System.Drawing.GraphicsUnit]::Point)
 $form.Controls.Add($trayCheck)
 
 $closeHint = New-Label "Close = PC offline" 330 366 142 18 8 $muted2 $false
