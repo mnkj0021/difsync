@@ -379,8 +379,8 @@ document.addEventListener("DOMContentLoaded", () => {
       const data = await api("/api/pairing-codes", { method: "POST", body: "{}" });
       $("#pair-code").textContent = data.code;
       $("#pair-expiry").textContent = "Expires " + new Date(data.expires_at).toLocaleTimeString();
-      const repo = "https://raw.githubusercontent.com/mnkj0021/difsync/main/agents/device-agent/install-windows.ps1";
-      const windows = `powershell -NoProfile -ExecutionPolicy Bypass -Command "iwr '${repo}' -OutFile '$env:TEMP\\difsync-install.ps1'; & '$env:TEMP\\difsync-install.ps1' -PairCode '${data.code}'"`;
+      const repo = "https://difsync.com/install/windows.ps1";
+      const windows = `powershell -NoProfile -ExecutionPolicy Bypass -Command "iwr '${repo}' -UseBasicParsing -OutFile '$env:TEMP\\difsync-install.ps1'; & '$env:TEMP\\difsync-install.ps1' -PairCode '${data.code}'"`;
       const linux = `git clone https://github.com/mnkj0021/difsync.git ~/difsync-agent 2>/dev/null || git -C ~/difsync-agent pull --ff-only; cd ~/difsync-agent && npm install && DIFSYNC_PAIR_CODE='${data.code}' npm run agent`;
       const command = state.pairPlatform === "linux" ? linux : windows;
       $("#pair-install-label").textContent = state.pairPlatform === "linux" ? "Run in a terminal" : "Run in PowerShell";
