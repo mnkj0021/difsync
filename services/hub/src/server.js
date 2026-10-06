@@ -10,6 +10,7 @@ const {
   encryptJson, decryptJson, parseCookies, createLimiter,
 } = require("./security");
 const { getProvider, publicCatalog, validateConnector } = require("./connectors");
+const { installOAuth } = require("./oauth");
 
 if (!config.encryptionKey) throw new Error("DIFSYNC_ENCRYPTION_KEY is required");
 encryptJson({ boot: true }, config.encryptionKey);
@@ -34,6 +35,8 @@ app.use(helmet({
   crossOriginEmbedderPolicy: false,
 }));
 app.use(express.json({ limit: "512kb" }));
+app.use(express.urlencoded({ extended: false, limit: "128kb" }));
+installOAuth(app);
 
 const authLimit = createLimiter({ windowMs: 60_000, max: 10 });
 const pairLimit = createLimiter({ windowMs: 60_000, max: 20 });
