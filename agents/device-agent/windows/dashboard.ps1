@@ -82,9 +82,9 @@ $title = New-Label "DifSync" 28 24 280 36 20 $text $true
 $subtitle = New-Label "Remote Access" 28 61 220 20 9 $muted $false
 $form.Controls.AddRange(@($title,$subtitle))
 
-$host = New-Label $env:COMPUTERNAME 350 34 120 22 8 $muted $true
-$host.TextAlign = [System.Drawing.ContentAlignment]::MiddleRight
-$form.Controls.Add($host)
+$hostLabel = New-Label $env:COMPUTERNAME 350 34 120 22 8 $muted $true
+$hostLabel.TextAlign = [System.Drawing.ContentAlignment]::MiddleRight
+$form.Controls.Add($hostLabel)
 
 $statusPanel = New-Object System.Windows.Forms.Panel
 $statusPanel.Location = New-Object System.Drawing.Point -ArgumentList 28,96
