@@ -100,6 +100,7 @@ async function loadDashboard() {
   state.catalog = catalog.connectors || [];
   renderOverview();
   renderDevices();
+  renderSyncComponents();
   renderConnectors();
 }
 
@@ -143,31 +144,70 @@ function renderOverview() {
 function renderDevices() {
   const root = $("#device-page-list");
   if (!state.agents.length) {
-    root.innerHTML = `<div class="empty-state">Pair a local DifSync agent to discover hardware.</div>`;
+    root.innerHTML = `<div class="empty-state">No remote systems paired yet. Add a system to enable secure remote access.</div>`;
     return;
   }
   root.innerHTML = state.agents.map((agent) => {
-    const inv = agent.inventory || {};
-    const pc = Array.isArray(inv.pc_devices) ? inv.pc_devices : [];
-    const room = Array.isArray(inv.govee_devices) ? inv.govee_devices : [];
-    const chips = [
-      ...pc.slice(0, 12).map((d) => d.name || d.type || "PC device"),
-      ...room.slice(0, 8).map((d) => d.deviceName || d.name || d.model || "Room light"),
-    ];
+    const lastSeen = agent.last_seen ? new Date(agent.last_seen).toLocaleString() : "Not reported";
     return `
-      <article class="system-card">
+      <article class="system-card remote-system-card">
         <div class="system-card-head">
-          <span class="eyebrow">${agent.online ? "Online" : "Offline"}</span>
-          <span class="online-dot ${agent.online ? "on" : ""}"></span>
+          <span class="system-kind">Remote system</span>
+          <span class="system-status"><i class="online-dot ${agent.online ? "on" : ""}"></i>${agent.online ? "Online" : "Offline"}</span>
         </div>
-        <h3>${escapeHtml(agent.name || agent.id)}</h3>
-        <p>${escapeHtml(agent.platform || "Unknown platform")} - ${escapeHtml(agent.version || "agent")}</p>
-        <div class="inventory-chips">
-          ${chips.length ? chips.map((x) => `<span>${escapeHtml(x)}</span>`).join("") : `<span>No inventory synchronized yet</span>`}
+        <div class="system-identity">
+          <div class="agent-icon">PC</div>
+          <div><h3>${escapeHtml(agent.name || agent.id)}</h3><p>${escapeHtml(agent.platform || "Unknown platform")} · ${escapeHtml(agent.version || "agent")}</p></div>
         </div>
+        <dl class="system-meta">
+          <div><dt>Agent ID</dt><dd>${escapeHtml(agent.id)}</dd></div>
+          <div><dt>Last seen</dt><dd>${escapeHtml(lastSeen)}</dd></div>
+          <div><dt>Remote access</dt><dd>${agent.online ? "Available" : "Unavailable"}</dd></div>
+        </dl>
       </article>
     `;
   }).join("");
+}
+
+function renderSyncComponents() {
+  const root = $("#sync-component-list");
+  const count = $("#sync-component-count");
+  if (!root || !count) return;
+
+  const components = [];
+  for (const agent of state.agents) {
+    const inv = agent.inventory || {};
+    const pc = Array.isArray(inv.pc_devices) ? inv.pc_devices : [];
+    const room = Array.isArray(inv.govee_devices) ? inv.govee_devices : [];
+    pc.forEach((device) => components.push({
+      system: agent.name || agent.id,
+      name: device.name || device.type || "PC component",
+      type: device.type || "Local RGB",
+      source: "PC hardware"
+    }));
+    room.forEach((device) => components.push({
+      system: agent.name || agent.id,
+      name: device.deviceName || device.name || device.model || "Room light",
+      type: device.model || "Smart light",
+      source: "Room lighting"
+    }));
+  }
+
+  count.textContent = components.length + (components.length === 1 ? " component" : " components");
+  if (!components.length) {
+    root.className = "component-list empty-state";
+    root.textContent = "No lighting components discovered yet.";
+    return;
+  }
+
+  root.className = "component-list";
+  root.innerHTML = components.map((component) => `
+    <div class="component-row">
+      <span class="component-mark">◇</span>
+      <div><b>${escapeHtml(component.name)}</b><small>${escapeHtml(component.type)} · ${escapeHtml(component.system)}</small></div>
+      <span class="component-source">${escapeHtml(component.source)}</span>
+    </div>
+  `).join("");
 }
 
 function renderConnectors() {
