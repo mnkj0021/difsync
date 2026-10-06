@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import crypto from "node:crypto";
 import { execute, inventory } from "./runtime.js";
+import { executeSyncTarget, syncInventory } from "./sync.js";
 
 const API = String(process.env.DIFSYNC_API || "https://difsync.com").replace(/\/+$/, "");
 const HOME = os.homedir();
@@ -58,7 +59,7 @@ async function pair(state) {
       agent_id: agentId,
       name: process.env.DIFSYNC_DEVICE_NAME || os.hostname(),
       platform: os.platform() + "-" + os.arch(),
-      version: "0.2.0"
+      version: "0.3.0"
     })
   });
   const next = {
@@ -73,25 +74,33 @@ async function pair(state) {
 
 
 async function heartbeat(state) {
+  const baseInventory = inventory();
+  try {
+    Object.assign(baseInventory, await syncInventory());
+  } catch {}
+
   const data = await json("/api/agent/pull", {
     method: "POST",
     headers: { Authorization: "Bearer " + state.agent_token },
     body: JSON.stringify({
       agent_name: process.env.DIFSYNC_DEVICE_NAME || os.hostname(),
       platform: os.platform() + "-" + os.arch(),
-      version: "0.2.0",
-      inventory: inventory()
+      version: "0.3.0",
+      inventory: baseInventory
     })
   });
 
   if (Array.isArray(data.commands) && data.commands.length) {
     for (const command of data.commands) {
-      if (command.target !== "mcp") {
-        console.error("[DifSync] ignoring unsupported target " + command.target);
-        continue;
-      }
       try {
-        const details = await execute(command.payload || {});
+        let details;
+        if (command.target === "mcp") {
+          details = await execute(command.payload || {});
+        } else if (["scene", "openrgb", "govee"].includes(String(command.target || "").toLowerCase())) {
+          details = await executeSyncTarget(command.target, command.payload || {});
+        } else {
+          throw new Error("Unsupported command target: " + command.target);
+        }
         await json("/api/agent/ack", {
           method: "POST",
           headers: { Authorization: "Bearer " + state.agent_token },
