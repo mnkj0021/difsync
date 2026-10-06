@@ -3,9 +3,9 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="description" content="DifSync is an open-source lighting orchestration platform for PC RGB and smart-home lighting." />
+  <meta name="description" content="DifSync is an open device control platform for lighting synchronization and secure remote access." />
   <meta name="theme-color" content="#0d0f11" />
-  <title>DifSync — One lighting system</title>
+  <title>DifSync — One control plane for your devices</title>
   <link rel="icon" type="image/png" href="/assets/difsync-icon.png" />
   <link rel="apple-touch-icon" href="/assets/difsync-icon.png" />
   <link rel="stylesheet" href="/styles.css" />
@@ -30,11 +30,11 @@
 
     <main>
       <section class="hero wrap">
-        <div class="eyebrow">Open lighting orchestration</div>
-        <h1>Make every light<br />behave like one system.</h1>
+        <div class="eyebrow">Open device control platform</div>
+        <h1>Sync your hardware.<br />Control your systems.</h1>
         <p class="hero-copy">
-          DifSync brings PC RGB, room lighting and smart-home ecosystems into one hardware-aware
-          timeline, without a heavyweight controller sitting on your machine all day.
+          DifSync is one platform with two focused workspaces: Lighting Sync for RGB and smart-home orchestration,
+          and Remote Access for secure device management, commands and ChatGPT MCP control.
         </p>
         <div class="hero-actions">
           <a class="button button-primary" href="/app">Start with DifSync</a>
@@ -79,9 +79,9 @@
 
       <section class="proof-strip">
         <div class="wrap proof-grid">
-          <div><strong>One clock</strong><span>Phase-locked effects across mixed hardware.</span></div>
-          <div><strong>Local-first</strong><span>Hardware I/O stays on the machine that owns it.</span></div>
-          <div><strong>Open source</strong><span>Audit the stack. Extend the connectors. Keep control.</span></div>
+          <div><strong>Lighting Sync</strong><span>Scenes, RGB components and smart-home integrations.</span></div>
+          <div><strong>Remote Access</strong><span>Systems, files, processes and MCP control.</span></div>
+          <div><strong>Local-first</strong><span>Hardware access stays with the machine that owns it.</span></div>
         </div>
       </section>
 
@@ -284,13 +284,18 @@ browser → hub → local agent</code></pre>
                 </div>
               </section>
             </div>
+            <section class="panel sync-components-panel">
+              <div class="panel-head"><div><span class="eyebrow">Lighting components</span><h2>Discovered hardware</h2></div><span id="sync-component-count" class="status-pill">0 components</span></div>
+              <p class="panel-copy">Components appear here from paired systems. They belong to Lighting Sync, while the computers themselves are managed under Remote Access.</p>
+              <div id="sync-component-list" class="component-list empty-state">No lighting components discovered yet.</div>
+            </section>
           </section>
 
           <section id="page-devices" class="dash-page hidden">
             <div class="page-intro devices-intro">
-              <div><span class="eyebrow">Hardware</span><h2>Paired systems</h2></div>
+              <div><span class="eyebrow">Remote access</span><h2>Paired systems</h2></div>
               <div class="devices-intro-actions">
-                <p>A system is a local DifSync agent. Hardware discovery stays on that machine and only its safe inventory is synchronized here.</p>
+                <p>These are computers and servers you can manage remotely. Lighting components discovered inside them are shown separately in Sync Studio.</p>
                 <button id="devices-add-button" class="button button-primary">Add device</button>
               </div>
             </div>
