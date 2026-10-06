@@ -6,6 +6,6 @@
   "description": "Cross-platform DifSync device presence agent",
   "scripts": {
     "start": "node src/index.js",
-    "check": "node --check src/index.js"
+    "check": "node --check src/index.js && node --check src/runtime.js"
   }
 }
