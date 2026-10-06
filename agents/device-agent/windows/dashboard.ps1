@@ -7,14 +7,24 @@ $ErrorActionPreference = "Stop"
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
-[System.Windows.Forms.Application]::EnableVisualStyles()
+$logDir = Join-Path $env:LOCALAPPDATA "DifSync-Agent\logs"
+New-Item -ItemType Directory -Force -Path $logDir | Out-Null
+$crashLog = Join-Path $logDir "dashboard-error.log"
 
-$createdNew = $false
-$mutex = New-Object System.Threading.Mutex -ArgumentList $true, "Local\DifSyncDeviceDashboard", ([ref]$createdNew)
-if (-not $createdNew) {
-  [System.Windows.Forms.MessageBox]::Show("DifSync is already open.", "DifSync") | Out-Null
-  exit 0
+trap {
+  try { $_.Exception.ToString() | Set-Content -Path $crashLog -Encoding UTF8 } catch {}
+  try {
+    [System.Windows.Forms.MessageBox]::Show(
+      ("DifSync could not open." + [Environment]::NewLine + [Environment]::NewLine + $_.Exception.Message + [Environment]::NewLine + [Environment]::NewLine + "Log: " + $crashLog),
+      "DifSync",
+      [System.Windows.Forms.MessageBoxButtons]::OK,
+      [System.Windows.Forms.MessageBoxIcon]::Error
+    ) | Out-Null
+  } catch {}
+  exit 1
 }
+
+[System.Windows.Forms.Application]::EnableVisualStyles()
 
 $script:agentProcess = $null
 $script:connected = $false
@@ -285,8 +295,4 @@ try {
   $tray.Dispose()
   if ($script:appIcon) { $script:appIcon.Dispose() }
   if ($script:iconBitmap) { $script:iconBitmap.Dispose() }
-  if ($mutex) {
-    try { $mutex.ReleaseMutex() } catch {}
-    $mutex.Dispose()
-  }
 }
