@@ -28,7 +28,13 @@ if (!ROOTS.length) ROOTS.push(...defaultRoots());
 
 function within(target) {
   const p = path.resolve(String(target || ""));
-  const allowed = ROOTS.some((root) => p === root || p.startsWith(root + path.sep));
+  const allowed = ROOTS.some((root) => {
+    const relative = path.relative(root, p);
+    return relative === "" ||
+      (relative !== ".." &&
+       !relative.startsWith(".." + path.sep) &&
+       !path.isAbsolute(relative));
+  });
   if (!allowed) throw new Error("Path is outside configured agent roots");
   return p;
 }
