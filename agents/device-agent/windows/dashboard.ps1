@@ -7,6 +7,8 @@ $ErrorActionPreference = "Stop"
 Add-Type -AssemblyName PresentationFramework
 Add-Type -AssemblyName PresentationCore
 Add-Type -AssemblyName WindowsBase
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
 
 $createdNew = $false
 $mutex = New-Object System.Threading.Mutex($true, "Local\DifSyncDeviceDashboard", [ref]$createdNew)
@@ -17,19 +19,30 @@ if (-not $createdNew) {
 
 $script:agentProcess = $null
 $script:connected = $false
+$script:allowClose = $false
 $statePath = Join-Path $env:USERPROFILE ".difsync-agent\config.json"
 $agentPath = Join-Path $InstallDir "agents\device-agent\src\index.js"
 
 [xml]$xaml = @"
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="DifSync" Width="460" Height="360"
-        WindowStartupLocation="CenterScreen" ResizeMode="NoResize"
-        Background="#0D0F11" Foreground="#F1F0EB">
-  <Grid Margin="28">
+        Title="DifSync"
+        Width="520"
+        Height="430"
+        MinWidth="520"
+        MinHeight="430"
+        WindowStartupLocation="CenterScreen"
+        ResizeMode="CanMinimize"
+        Background="#0B0F14"
+        Foreground="#F4F7FA"
+        FontFamily="Segoe UI"
+        ShowInTaskbar="True">
+  <Grid Margin="26">
     <Grid.RowDefinitions>
       <RowDefinition Height="Auto"/>
-      <RowDefinition Height="24"/>
+      <RowDefinition Height="20"/>
+      <RowDefinition Height="Auto"/>
+      <RowDefinition Height="18"/>
       <RowDefinition Height="Auto"/>
       <RowDefinition Height="18"/>
       <RowDefinition Height="Auto"/>
@@ -37,55 +50,87 @@ $agentPath = Join-Path $InstallDir "agents\device-agent\src\index.js"
       <RowDefinition Height="Auto"/>
     </Grid.RowDefinitions>
 
-    <StackPanel Grid.Row="0">
-      <TextBlock Text="DifSync" FontSize="26" FontWeight="SemiBold"/>
-      <TextBlock Text="Remote Access" Margin="0,4,0,0" Foreground="#8C949E" FontSize="12"/>
-    </StackPanel>
+    <Grid Grid.Row="0">
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="*"/>
+        <ColumnDefinition Width="Auto"/>
+      </Grid.ColumnDefinitions>
+      <StackPanel>
+        <TextBlock Text="DifSync" FontSize="25" FontWeight="SemiBold" LetterSpacing="-0.4"/>
+        <TextBlock Text="Remote Access" Margin="0,4,0,0" Foreground="#8290A3" FontSize="11"/>
+      </StackPanel>
+      <Border Grid.Column="1" VerticalAlignment="Center" Background="#111822" BorderBrush="#202B38" BorderThickness="1" CornerRadius="10" Padding="10,6">
+        <TextBlock x:Name="HostName" Text="" Foreground="#B9C6D5" FontSize="10" FontWeight="SemiBold"/>
+      </Border>
+    </Grid>
 
-    <Border Grid.Row="2" Background="#14191F" BorderBrush="#242B33" BorderThickness="1" CornerRadius="16" Padding="18">
+    <Border Grid.Row="2" Background="#121922" BorderBrush="#202B38" BorderThickness="1" CornerRadius="16" Padding="18">
       <Grid>
         <Grid.ColumnDefinitions>
           <ColumnDefinition Width="Auto"/>
           <ColumnDefinition Width="*"/>
           <ColumnDefinition Width="Auto"/>
         </Grid.ColumnDefinitions>
-        <Ellipse x:Name="StatusDot" Width="10" Height="10" Fill="#6F7780" VerticalAlignment="Center" Margin="0,0,12,0"/>
+        <Ellipse x:Name="StatusDot" Width="10" Height="10" Fill="#6E7885" VerticalAlignment="Center" Margin="0,0,13,0"/>
         <StackPanel Grid.Column="1">
-          <TextBlock x:Name="StatusTitle" Text="Connecting..." FontSize="15" FontWeight="SemiBold"/>
-          <TextBlock x:Name="StatusDetail" Text="Starting secure device agent" Foreground="#8C949E" FontSize="10" Margin="0,3,0,0"/>
+          <TextBlock x:Name="StatusTitle" Text="Connecting" FontSize="16" FontWeight="SemiBold"/>
+          <TextBlock x:Name="StatusDetail" Text="Starting secure device session" Foreground="#8E9CAF" FontSize="10" Margin="0,4,0,0"/>
         </StackPanel>
-        <TextBlock Grid.Column="2" x:Name="HostName" Text="" Foreground="#AEB8C4" VerticalAlignment="Center" FontSize="11"/>
+        <Border Grid.Column="2" VerticalAlignment="Center" Background="#0E141C" CornerRadius="999" Padding="9,5">
+          <TextBlock x:Name="AccessBadge" Text="PRIVATE" Foreground="#8FAE9C" FontSize="9" FontWeight="Bold"/>
+        </Border>
       </Grid>
     </Border>
 
-    <StackPanel Grid.Row="4">
-      <Grid Margin="0,0,0,9">
-        <Grid.ColumnDefinitions><ColumnDefinition Width="105"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-        <TextBlock Text="Device" Foreground="#737D88" FontSize="10"/>
-        <TextBlock Grid.Column="1" x:Name="DeviceNameText" FontSize="11"/>
-      </Grid>
-      <Grid Margin="0,0,0,9">
-        <Grid.ColumnDefinitions><ColumnDefinition Width="105"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-        <TextBlock Text="Device ID" Foreground="#737D88" FontSize="10"/>
-        <TextBlock Grid.Column="1" x:Name="DeviceIdText" FontFamily="Consolas" FontSize="10" TextTrimming="CharacterEllipsis"/>
-      </Grid>
+    <Border Grid.Row="4" Background="#0F151D" BorderBrush="#1C2632" BorderThickness="1" CornerRadius="14" Padding="16">
       <Grid>
-        <Grid.ColumnDefinitions><ColumnDefinition Width="105"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-        <TextBlock Text="Access" Foreground="#737D88" FontSize="10"/>
-        <TextBlock Grid.Column="1" Text="Reachable only while this app is open" FontSize="10" Foreground="#AEB8C4"/>
+        <Grid.RowDefinitions>
+          <RowDefinition Height="Auto"/>
+          <RowDefinition Height="12"/>
+          <RowDefinition Height="Auto"/>
+          <RowDefinition Height="12"/>
+          <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="100"/>
+          <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+
+        <TextBlock Text="Device" Foreground="#738094" FontSize="10"/>
+        <TextBlock Grid.Column="1" x:Name="DeviceNameText" FontSize="11" FontWeight="SemiBold"/>
+
+        <TextBlock Grid.Row="2" Text="Device ID" Foreground="#738094" FontSize="10"/>
+        <TextBlock Grid.Row="2" Grid.Column="1" x:Name="DeviceIdText" FontFamily="Consolas" FontSize="10" Foreground="#D2DAE4" TextTrimming="CharacterEllipsis"/>
+
+        <TextBlock Grid.Row="4" Text="Access" Foreground="#738094" FontSize="10"/>
+        <TextBlock Grid.Row="4" Grid.Column="1" Text="Reachable only while DifSync is running" FontSize="10" Foreground="#AEB9C7"/>
       </Grid>
-    </StackPanel>
+    </Border>
 
     <Grid Grid.Row="6">
       <Grid.ColumnDefinitions>
         <ColumnDefinition Width="*"/>
-        <ColumnDefinition Width="10"/>
+        <ColumnDefinition Width="12"/>
         <ColumnDefinition Width="*"/>
       </Grid.ColumnDefinitions>
       <Button x:Name="ToggleButton" Grid.Column="0" Height="42" Content="Disconnect"
-              Background="#E9E8E3" Foreground="#111417" BorderThickness="0" FontWeight="SemiBold"/>
+              Background="#E8EDF3" Foreground="#10151B" BorderThickness="0"
+              FontSize="11" FontWeight="SemiBold" Cursor="Hand"/>
       <Button x:Name="WebButton" Grid.Column="2" Height="42" Content="Open web dashboard"
-              Background="#171C22" Foreground="#E7EBF0" BorderBrush="#2A323B" BorderThickness="1"/>
+              Background="#151D27" Foreground="#EAF0F6" BorderBrush="#293545"
+              BorderThickness="1" FontSize="11" FontWeight="SemiBold" Cursor="Hand"/>
+    </Grid>
+
+    <Grid Grid.Row="8">
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="*"/>
+        <ColumnDefinition Width="Auto"/>
+      </Grid.ColumnDefinitions>
+      <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+        <CheckBox x:Name="TrayCheck" IsChecked="False" VerticalAlignment="Center"/>
+        <TextBlock Text="Minimize to tray" Margin="8,0,0,0" Foreground="#8E9CAF" FontSize="10" VerticalAlignment="Center"/>
+      </StackPanel>
+      <TextBlock Grid.Column="1" Text="Closing DifSync takes this PC offline" Foreground="#667488" FontSize="9" VerticalAlignment="Center"/>
     </Grid>
   </Grid>
 </Window>
@@ -93,14 +138,17 @@ $agentPath = Join-Path $InstallDir "agents\device-agent\src\index.js"
 
 $reader = New-Object System.Xml.XmlNodeReader $xaml
 $window = [Windows.Markup.XamlReader]::Load($reader)
+
 $statusDot = $window.FindName("StatusDot")
 $statusTitle = $window.FindName("StatusTitle")
 $statusDetail = $window.FindName("StatusDetail")
+$accessBadge = $window.FindName("AccessBadge")
 $hostNameText = $window.FindName("HostName")
 $deviceNameText = $window.FindName("DeviceNameText")
 $deviceIdText = $window.FindName("DeviceIdText")
 $toggleButton = $window.FindName("ToggleButton")
 $webButton = $window.FindName("WebButton")
+$trayCheck = $window.FindName("TrayCheck")
 
 $hostNameText.Text = $env:COMPUTERNAME
 $deviceNameText.Text = $DeviceName
@@ -116,12 +164,27 @@ try {
   $deviceIdText.Text = "Unable to read state"
 }
 
+$notifyIcon = New-Object System.Windows.Forms.NotifyIcon
+$notifyIcon.Text = "DifSync Remote Access"
+$notifyIcon.Icon = [System.Drawing.SystemIcons]::Application
+$notifyIcon.Visible = $false
+
+$trayMenu = New-Object System.Windows.Forms.ContextMenuStrip
+$openItem = $trayMenu.Items.Add("Open DifSync")
+$disconnectItem = $trayMenu.Items.Add("Disconnect")
+$trayMenu.Items.Add("-") | Out-Null
+$exitItem = $trayMenu.Items.Add("Exit")
+$notifyIcon.ContextMenuStrip = $trayMenu
+
 function Set-Status([string]$title, [string]$detail, [string]$color, [bool]$connected) {
   $statusTitle.Text = $title
   $statusDetail.Text = $detail
   $statusDot.Fill = (New-Object Windows.Media.BrushConverter).ConvertFromString($color)
   $script:connected = $connected
   $toggleButton.Content = if ($connected) { "Disconnect" } else { "Connect" }
+  $accessBadge.Text = if ($connected) { "ONLINE" } else { "OFFLINE" }
+  $accessBadge.Foreground = (New-Object Windows.Media.BrushConverter).ConvertFromString($(if ($connected) { "#8FAE9C" } else { "#7D8794" }))
+  $disconnectItem.Text = if ($connected) { "Disconnect" } else { "Connect" }
 }
 
 function Start-Agent {
@@ -133,7 +196,7 @@ function Start-Agent {
   }
 
   if (-not (Test-Path $statePath)) {
-    Set-Status "Not paired" "Pair this PC from difsync.com/devices first" "#B67979" $false
+    Set-Status "Not paired" "Pair this PC from difsync.com/devices" "#B67979" $false
     return
   }
 
@@ -169,7 +232,14 @@ function Stop-Agent {
     }
   } catch {}
   $script:agentProcess = $null
-  Set-Status "Offline" "This PC is not reachable remotely" "#6F7780" $false
+  Set-Status "Offline" "This PC is not reachable remotely" "#6E7885" $false
+}
+
+function Restore-Window {
+  $notifyIcon.Visible = $false
+  $window.Show()
+  $window.WindowState = "Normal"
+  $window.Activate()
 }
 
 $toggleButton.Add_Click({
@@ -180,18 +250,41 @@ $webButton.Add_Click({
   Start-Process "https://difsync.com/devices"
 })
 
+$openItem.Add_Click({ Restore-Window })
+$disconnectItem.Add_Click({
+  if ($script:connected) { Stop-Agent } else { Start-Agent }
+})
+$exitItem.Add_Click({
+  $script:allowClose = $true
+  $notifyIcon.Visible = $false
+  $window.Close()
+})
+$notifyIcon.Add_DoubleClick({ Restore-Window })
+
 $window.Add_ContentRendered({
   Start-Agent
 })
 
+$window.Add_StateChanged({
+  if ($window.WindowState -eq "Minimized" -and $trayCheck.IsChecked) {
+    $window.Hide()
+    $notifyIcon.Visible = $true
+    $notifyIcon.ShowBalloonTip(1200, "DifSync", "Still online in the system tray.", [System.Windows.Forms.ToolTipIcon]::Info)
+  }
+})
+
 $window.Add_Closing({
-  Stop-Agent
+  if (-not $script:allowClose) {
+    Stop-Agent
+  }
 })
 
 try {
   [void]$window.ShowDialog()
 } finally {
   Stop-Agent
+  $notifyIcon.Visible = $false
+  $notifyIcon.Dispose()
   if ($mutex) {
     try { $mutex.ReleaseMutex() } catch {}
     $mutex.Dispose()
