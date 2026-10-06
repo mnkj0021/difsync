@@ -202,36 +202,71 @@ browser → hub → local agent</code></pre>
     <div id="dashboard" class="dashboard hidden">
       <aside class="dash-sidebar">
         <a class="brand" href="/"><img class="brand-logo" src="/assets/difsync-icon.png" alt="" aria-hidden="true" /><span>DifSync</span></a>
-        <nav>
-          <button class="dash-nav active" data-page="overview">Overview</button>
-          <button class="dash-nav" data-page="devices">Devices</button>
-          <button class="dash-nav" data-page="connectors">Connectors</button>
-          <button class="dash-nav" data-page="account">Account</button>
+        <nav class="dash-nav-tree">
+          <div class="nav-group">
+            <span class="nav-group-label">Workspace</span>
+            <button class="dash-nav active" data-page="overview"><span class="nav-icon">⌂</span><span>Overview</span></button>
+          </div>
+          <div class="nav-group">
+            <span class="nav-group-label">Lighting sync</span>
+            <button class="dash-nav" data-page="sync"><span class="nav-icon">◇</span><span>Sync studio</span></button>
+            <button class="dash-nav" data-page="connectors"><span class="nav-icon">◎</span><span>Integrations</span></button>
+          </div>
+          <div class="nav-group">
+            <span class="nav-group-label">Remote access</span>
+            <button class="dash-nav" data-page="devices"><span class="nav-icon">▣</span><span>Systems</span></button>
+            <button class="dash-nav" data-page="mcp"><span class="nav-icon">↗</span><span>ChatGPT access</span></button>
+          </div>
+          <div class="nav-group nav-group-bottom">
+            <span class="nav-group-label">Account</span>
+            <button class="dash-nav" data-page="account"><span class="nav-icon">○</span><span>Settings</span></button>
+          </div>
         </nav>
         <div class="dash-user"><span id="user-avatar">D</span><div><b id="user-name">User</b><small id="user-email"></small></div></div>
       </aside>
 
       <div class="dash-main">
         <header class="dash-header">
-          <div><span class="eyebrow">DifSync Cloud</span><h1 id="page-title">Overview</h1></div>
+          <div><span class="eyebrow" id="page-kicker">Workspace</span><h1 id="page-title">Overview</h1></div>
           <div class="dash-actions">
-            <button id="pair-button" class="button button-quiet">Pair a system</button>
+            <button id="pair-button" class="button button-quiet">Add system</button>
             <button id="logout-button" class="icon-button" aria-label="Log out">↗</button>
           </div>
         </header>
 
         <main class="dash-content">
           <section id="page-overview" class="dash-page">
+            <div class="product-pillars">
+              <button class="pillar-card" data-jump="sync">
+                <div class="pillar-top"><span class="pillar-icon sync-icon">◇</span><span class="status-pill ready">Lighting</span></div>
+                <h2>Lighting Sync</h2>
+                <p>Coordinate PC RGB, room lights and smart-home connectors on one shared scene timeline.</p>
+                <span class="pillar-link">Open Sync Studio <b>→</b></span>
+              </button>
+              <button class="pillar-card" data-jump="devices">
+                <div class="pillar-top"><span class="pillar-icon remote-icon">▣</span><span class="status-pill ready">Remote</span></div>
+                <h2>Remote Access</h2>
+                <p>Pair computers securely, inspect files and processes, and expose approved controls to ChatGPT through MCP.</p>
+                <span class="pillar-link">Manage systems <b>→</b></span>
+              </button>
+            </div>
             <div class="metric-grid">
-              <article><span>Systems</span><b id="metric-agents">0</b><small id="metric-online">0 online</small></article>
-              <article><span>Connectors</span><b id="metric-connectors">0</b><small>linked services</small></article>
-              <article><span>Security</span><b>Scoped</b><small>per-user ownership</small></article>
+              <article><span>Paired systems</span><b id="metric-agents">0</b><small id="metric-online">0 online</small></article>
+              <article><span>Integrations</span><b id="metric-connectors">0</b><small>linked services</small></article>
+              <article><span>Access model</span><b>Scoped</b><small>OAuth + per-user ownership</small></article>
+            </div>
+            <section class="panel">
+              <div class="panel-head"><div><span class="eyebrow">Remote systems</span><h2>Connected computers</h2></div><button class="text-link button-link" id="refresh-button">Refresh</button></div>
+              <div id="agent-list" class="agent-list empty-state">No systems paired yet.</div>
+            </section>
+          </section>
+
+          <section id="page-sync" class="dash-page hidden">
+            <div class="page-intro">
+              <div><span class="eyebrow">Lighting sync</span><h2>Sync Studio</h2></div>
+              <p>Scenes and hardware synchronization live here. Remote administration and MCP controls are kept separate under Remote Access.</p>
             </div>
             <div class="dash-grid">
-              <section class="panel">
-                <div class="panel-head"><div><span class="eyebrow">Systems</span><h2>Your agents</h2></div><button class="text-link button-link" id="refresh-button">Refresh</button></div>
-                <div id="agent-list" class="agent-list empty-state">No systems paired yet.</div>
-              </section>
               <section class="panel scene-panel">
                 <div class="panel-head"><div><span class="eyebrow">Scene</span><h2>Quick control</h2></div></div>
                 <label class="field"><span>Target system</span><select id="scene-agent"></select></label>
@@ -239,6 +274,14 @@ browser → hub → local agent</code></pre>
                 <label class="range-field"><span>Brightness <b id="brightness-value">72%</b></span><input id="scene-brightness" type="range" min="0" max="100" value="72" /></label>
                 <button id="scene-apply" class="button button-primary full">Apply scene</button>
                 <div id="scene-status" class="micro-status"></div>
+              </section>
+              <section class="panel hierarchy-panel">
+                <div class="panel-head"><div><span class="eyebrow">Architecture</span><h2>What Sync controls</h2></div></div>
+                <div class="hierarchy-stack">
+                  <div><span>01</span><b>Scenes</b><small>color, brightness, motion</small></div>
+                  <div><span>02</span><b>Local hardware</b><small>GPU, motherboard, keyboard, mouse</small></div>
+                  <div><span>03</span><b>Room lighting</b><small>Govee, Hue and future connectors</small></div>
+                </div>
               </section>
             </div>
           </section>
@@ -255,8 +298,37 @@ browser → hub → local agent</code></pre>
           </section>
 
           <section id="page-connectors" class="dash-page hidden">
-            <div class="page-intro"><div><span class="eyebrow">Services</span><h2>Connectors</h2></div><p>Each connector is scoped to your account. Credentials are encrypted server-side and never returned to this browser.</p></div>
+            <div class="page-intro"><div><span class="eyebrow">Lighting sync</span><h2>Integrations</h2></div><p>Smart-home and lighting providers belong to the Sync side of DifSync. Credentials are encrypted server-side and never returned to this browser.</p></div>
             <div id="connector-grid" class="connector-grid"></div>
+          </section>
+
+          <section id="page-mcp" class="dash-page hidden">
+            <div class="page-intro">
+              <div><span class="eyebrow">Remote access</span><h2>ChatGPT access</h2></div>
+              <p>This is the MCP gateway. It is separate from lighting synchronization and only exposes authenticated remote-management tools.</p>
+            </div>
+            <div class="access-grid">
+              <section class="panel access-primary">
+                <div class="panel-head"><div><span class="eyebrow">MCP gateway</span><h2>ChatGPT ↔ DifSync</h2></div><span class="status-pill ready">OAuth protected</span></div>
+                <div class="access-flow">
+                  <div><b>ChatGPT</b><small>OAuth client</small></div><span>→</span>
+                  <div><b>difsync.com/mcp</b><small>secure gateway</small></div><span>→</span>
+                  <div><b>Your systems</b><small>paired agents</small></div>
+                </div>
+                <div class="access-meta">
+                  <div><span>Endpoint</span><code>https://difsync.com/mcp</code></div>
+                  <div><span>Scopes</span><code>difsync.read · difsync.write · difsync.execute</code></div>
+                </div>
+              </section>
+              <section class="panel">
+                <div class="panel-head"><div><span class="eyebrow">Boundary</span><h2>What this controls</h2></div></div>
+                <div class="hierarchy-stack">
+                  <div><span>01</span><b>Files</b><small>read, write, move, search</small></div>
+                  <div><span>02</span><b>Processes</b><small>run commands and manage sessions</small></div>
+                  <div><span>03</span><b>Systems</b><small>status, inventory and remote actions</small></div>
+                </div>
+              </section>
+            </div>
           </section>
 
           <section id="page-account" class="dash-page hidden">
