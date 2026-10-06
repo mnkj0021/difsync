@@ -70,6 +70,7 @@ const sql = {
   ackCommand: db.prepare("UPDATE commands SET status=@status, executed_at=@executed_at, message=@message, result_json=@result_json WHERE id=@id AND agent_id=@agent_id AND status IN ('queued','dispatched')"),
   commandsByUser: db.prepare("SELECT id, agent_id, target, status, created_at, dispatched_at, executed_at, message FROM commands WHERE user_id=? ORDER BY id DESC LIMIT 100"),
   commandsByUserAgent: db.prepare("SELECT id, agent_id, target, status, created_at, dispatched_at, executed_at, message FROM commands WHERE user_id=? AND agent_id=? ORDER BY id DESC LIMIT 100"),
+  commandByUserId: db.prepare("SELECT id, agent_id, target, status, created_at, dispatched_at, executed_at, message, result_json FROM commands WHERE id=? AND user_id=? LIMIT 1"),
   connectorsByUser: db.prepare("SELECT id, provider, name, status, metadata_json, created_at, updated_at FROM connectors WHERE user_id=? ORDER BY updated_at DESC"),
   connectorOwned: db.prepare("SELECT * FROM connectors WHERE id=? AND user_id=? LIMIT 1"),
   insertConnector: db.prepare("INSERT INTO connectors (id,user_id,provider,name,status,secret_ciphertext,metadata_json,created_at,updated_at) VALUES (@id,@user_id,@provider,@name,@status,@secret_ciphertext,@metadata_json,@created_at,@updated_at)"),
@@ -362,6 +363,80 @@ app.get("/api/inventory", authUser, (req, res) => {
   const agent = sql.ownAgent.get(agentId, req.user.id);
   if (!agent) return res.status(404).json({ ok: false, error: "Agent not found" });
   res.json({ ok: true, agent: publicAgent(agent), inventory: safeJson(agent.inventory_json, {}) });
+});
+
+const SAFE_INSPECT_OPS = new Set(["system_metrics", "process_list", "git_status"]);
+
+async function waitForAgentCommand(userId, commandId, timeoutMs = 7000) {
+  const deadline = Date.now() + Math.max(1000, Math.min(Number(timeoutMs) || 7000, 15000));
+  while (Date.now() < deadline) {
+    const row = sql.commandByUserId.get(commandId, userId);
+    if (!row) throw new Error("Command disappeared");
+    if (row.status === "done") return { status: "done", result: safeJson(row.result_json, {}), command: row };
+    if (row.status === "failed") return { status: "failed", error: row.message || "Command failed", command: row };
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  const row = sql.commandByUserId.get(commandId, userId);
+  return { status: row?.status || "queued", command_id: commandId };
+}
+
+function queueMcpCommand(req, agentId, payload) {
+  const agent = sql.ownAgent.get(agentId, req.user.id);
+  if (!agent) {
+    const error = new Error("Agent not found");
+    error.statusCode = 404;
+    throw error;
+  }
+  const publicRow = publicAgent(agent);
+  if (!publicRow.online) {
+    const error = new Error("Device is offline");
+    error.statusCode = 409;
+    throw error;
+  }
+  const info = sql.insertCommand.run(req.user.id, agentId, "mcp", JSON.stringify(payload), now());
+  const commandId = Number(info.lastInsertRowid);
+  audit(req, req.user.id, "command.queue.structured", "agent", agentId, { command_id: commandId, op: payload.op });
+  return commandId;
+}
+
+app.post("/api/agents/:id/inspect", authUser, sameOrigin, async (req, res) => {
+  try {
+    const agentId = String(req.params.id || "").trim();
+    const op = String(req.body?.op || "").trim();
+    if (!SAFE_INSPECT_OPS.has(op)) return res.status(400).json({ ok: false, error: "Unsupported inspection operation" });
+
+    const payload = { op };
+    if (op === "process_list") payload.limit = Math.max(1, Math.min(250, Number(req.body?.limit) || 120));
+    if (op === "git_status") {
+      const repo = String(req.body?.repo || "").trim();
+      if (!repo) return res.status(400).json({ ok: false, error: "repo is required" });
+      payload.repo = repo;
+    }
+
+    const commandId = queueMcpCommand(req, agentId, payload);
+    const outcome = await waitForAgentCommand(req.user.id, commandId);
+    if (outcome.status === "failed") return res.status(502).json({ ok: false, command_id: commandId, error: outcome.error });
+    if (outcome.status !== "done") return res.status(202).json({ ok: true, command_id: commandId, status: outcome.status });
+    return res.json({ ok: true, command_id: commandId, result: outcome.result });
+  } catch (error) {
+    return res.status(error.statusCode || 500).json({ ok: false, error: String(error?.message || error) });
+  }
+});
+
+app.post("/api/agents/:id/processes/:pid/terminate", authUser, sameOrigin, async (req, res) => {
+  try {
+    const agentId = String(req.params.id || "").trim();
+    const pid = Number(req.params.pid);
+    if (!Number.isInteger(pid) || pid <= 0) return res.status(400).json({ ok: false, error: "Invalid process id" });
+    const commandId = queueMcpCommand(req, agentId, { op: "kill_process", pid });
+    const outcome = await waitForAgentCommand(req.user.id, commandId);
+    if (outcome.status === "failed") return res.status(502).json({ ok: false, command_id: commandId, error: outcome.error });
+    if (outcome.status !== "done") return res.status(202).json({ ok: true, command_id: commandId, status: outcome.status });
+    audit(req, req.user.id, "process.terminate", "agent", agentId, { pid, command_id: commandId });
+    return res.json({ ok: true, command_id: commandId, result: outcome.result });
+  } catch (error) {
+    return res.status(error.statusCode || 500).json({ ok: false, error: String(error?.message || error) });
+  }
 });
 
 app.get("/api/connectors/catalog", authUser, (_req, res) => {
