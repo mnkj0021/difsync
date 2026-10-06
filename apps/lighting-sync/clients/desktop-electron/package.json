@@ -1,0 +1,15 @@
+{
+  "name": "difsync-desktop",
+  "version": "1.0.0",
+  "private": true,
+  "description": "DifSync Lighting Studio for Windows",
+  "main": "main.js",
+  "scripts": {
+    "build:ui": "npm --prefix ../difsync-react run build",
+    "start": "set ELECTRON_RUN_AS_NODE=&& electron .",
+    "dev": "set ELECTRON_RUN_AS_NODE=&& electron ."
+  },
+  "devDependencies": {
+    "electron": "^36.0.0"
+  }
+}

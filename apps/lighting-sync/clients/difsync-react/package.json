@@ -1,0 +1,30 @@
+{
+  "name": "difsync-react",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build --mode electron",
+    "build:web": "tsc && vite build --mode web",
+    "vercel-build": "npm run build:web",
+    "preview": "vite preview",
+    "android:sync": "npm run build && npx cap sync android",
+    "android:run": "npm run build && npx cap run android",
+    "android:deploy": "npm run build && npx cap sync android && cd android && gradlew.bat :app:installDebug"
+  },
+  "dependencies": {
+    "@capacitor/android": "^7.4.3",
+    "@capacitor/core": "^7.4.3",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^7.4.3",
+    "@types/react": "^19.1.10",
+    "@types/react-dom": "^19.1.7",
+    "@vitejs/plugin-react": "^5.0.2",
+    "typescript": "~5.9.3",
+    "vite": "^7.3.1"
+  }
+}
