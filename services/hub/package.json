@@ -10,7 +10,7 @@
     "check": "node --check src/server.js && node --check src/security.js && node --check src/db.js && node --check src/oauth.js && node --check src/connectors/index.js"
   },
   "dependencies": {
-    "better-sqlite3": "^11.10.0",
+    "better-sqlite3": "^13.0.3",
     "dotenv": "^16.5.0",
     "express": "^4.21.2",
     "helmet": "^8.1.0"
