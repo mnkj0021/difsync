@@ -52,7 +52,10 @@ function readFile(input, offset = 0, length = 65536) {
 
 function listDirectory(input, depth = 1) {
   const root = within(input);
-  const maxDepth = Math.max(0, Math.min(5, Number(depth) || 1));
+  const parsedDepth = Number(depth);
+  const maxDepth = Number.isFinite(parsedDepth)
+    ? Math.max(0, Math.min(5, parsedDepth))
+    : 1;
   const entries = [];
   function walk(dir, level) {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
