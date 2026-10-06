@@ -41,7 +41,8 @@ function New-Label([string]$text, [int]$x, [int]$y, [int]$w, [int]$h, [float]$si
   $label.Size = New-Object System.Drawing.Size -ArgumentList $w,$h
   $label.ForeColor = $color
   $label.BackColor = [System.Drawing.Color]::Transparent
-  $fontStyle = if ($bold) { [System.Drawing.FontStyle]::Bold } else { [System.Drawing.FontStyle]::Regular }\n  $label.Font = New-Object System.Drawing.Font -ArgumentList "Segoe UI",$size,$fontStyle
+  $fontStyle = if ($bold) { [System.Drawing.FontStyle]::Bold } else { [System.Drawing.FontStyle]::Regular }
+  $label.Font = New-Object System.Drawing.Font -ArgumentList "Segoe UI",$size,$fontStyle
   return $label
 }
 
