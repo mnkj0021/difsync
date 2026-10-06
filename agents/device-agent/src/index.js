@@ -2,12 +2,13 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import crypto from "node:crypto";
+import { execute, inventory } from "./runtime.js";
 
 const API = String(process.env.DIFSYNC_API || "https://difsync.com").replace(/\/+$/, "");
 const HOME = os.homedir();
 const STATE_DIR = path.join(HOME, ".difsync-agent");
 const STATE_FILE = path.join(STATE_DIR, "config.json");
-const INTERVAL_MS = Math.max(5000, Number(process.env.DIFSYNC_AGENT_INTERVAL_MS || 10000));
+const INTERVAL_MS = Math.max(1000, Number(process.env.DIFSYNC_AGENT_INTERVAL_MS || 2000));
 
 function stableId() {
   const seed = [os.hostname(), os.platform(), os.arch(), os.homedir()].join("|");
@@ -57,7 +58,7 @@ async function pair(state) {
       agent_id: agentId,
       name: process.env.DIFSYNC_DEVICE_NAME || os.hostname(),
       platform: os.platform() + "-" + os.arch(),
-      version: "0.1.0"
+      version: "0.2.0"
     })
   });
   const next = {
@@ -70,22 +71,6 @@ async function pair(state) {
   return next;
 }
 
-function inventory() {
-  return {
-    hostname: os.hostname(),
-    platform: os.platform(),
-    arch: os.arch(),
-    release: os.release(),
-    node: process.version,
-    capabilities: [
-      "device.presence",
-      "inventory.safe"
-    ],
-    memory_bytes: os.totalmem(),
-    cpus: os.cpus().length,
-    updated_at: new Date().toISOString()
-  };
-}
 
 async function heartbeat(state) {
   const data = await json("/api/agent/pull", {
@@ -99,10 +84,32 @@ async function heartbeat(state) {
     })
   });
 
-  // v0.1 presence agent intentionally does not execute remote commands.
-  // If a command is queued, leave it untouched rather than silently running it.
   if (Array.isArray(data.commands) && data.commands.length) {
-    console.error("[DifSync] " + data.commands.length + " command(s) waiting; this read-only agent does not execute commands.");
+    for (const command of data.commands) {
+      if (command.target !== "mcp") {
+        console.error("[DifSync] ignoring unsupported target " + command.target);
+        continue;
+      }
+      try {
+        const details = await execute(command.payload || {});
+        await json("/api/agent/ack", {
+          method: "POST",
+          headers: { Authorization: "Bearer " + state.agent_token },
+          body: JSON.stringify({ command_id: command.id, success: true, message: "ok", details })
+        });
+      } catch (error) {
+        await json("/api/agent/ack", {
+          method: "POST",
+          headers: { Authorization: "Bearer " + state.agent_token },
+          body: JSON.stringify({
+            command_id: command.id,
+            success: false,
+            message: String(error?.message || error).slice(0, 500),
+            details: {}
+          })
+        }).catch(() => {});
+      }
+    }
   }
 }
 
