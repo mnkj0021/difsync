@@ -17,10 +17,15 @@ if (Test-Path $InstallDir) {
   Set-Location $InstallDir
 }
 
-npm install
+if (Test-Path "package-lock.json") { npm ci } else { npm install }
 if ($PairCode) { $env:DIFSYNC_PAIR_CODE = $PairCode }
 $env:DIFSYNC_DEVICE_NAME = $DeviceName
 if ($Roots) { $env:DIFSYNC_AGENT_ROOTS = $Roots }
+
+$syncUpdater = Join-Path $InstallDir "agents\device-agent\windows\sync-lighting-source.ps1"
+if (Test-Path $syncUpdater) {
+  & $syncUpdater -InstallDir $InstallDir
+}
 
 $state = Join-Path $env:USERPROFILE ".difsync-agent\config.json"
 
