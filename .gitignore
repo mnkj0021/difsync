@@ -1,0 +1,39 @@
+# secrets and machine-specific state
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.pfx
+*.p12
+
+# runtime state
+var/
+data/
+*.sqlite
+*.sqlite-*
+*.db
+*.log
+logs/
+__pycache__/
+*.pyc
+*.bak
+
+# dependencies / builds
+node_modules/
+dist/
+build/
+.cache/
+.vercel/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# local device/runtime exports
+device-inventory*.json
+runtime-state*.json
+openrgb/
+OpenRGB/

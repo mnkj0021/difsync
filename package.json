@@ -1,0 +1,13 @@
+{
+  "name": "difsync",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Open-source lighting orchestration across PC RGB and smart-home ecosystems.",
+  "license": "MIT",
+  "workspaces": ["services/*"],
+  "scripts": {
+    "start": "npm --workspace services/hub start",
+    "dev": "npm --workspace services/hub run dev",
+    "check": "npm --workspace services/hub run check"
+  }
+}
