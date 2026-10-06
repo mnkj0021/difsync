@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import crypto from "node:crypto";
 
 const OUTPUT_LIMIT = Math.max(20000, Number(process.env.DIFSYNC_AGENT_OUTPUT_LIMIT || 250000));
@@ -100,6 +100,111 @@ function searchFiles(input, query, maxResults = 100) {
   return out;
 }
 
+function systemMetrics() {
+  const cpus = os.cpus();
+  const disks = ROOTS.map((root) => {
+    try {
+      const stat = fs.statfsSync(root);
+      return {
+        root,
+        total_bytes: Number(stat.blocks) * Number(stat.bsize),
+        free_bytes: Number(stat.bavail) * Number(stat.bsize)
+      };
+    } catch {
+      return { root, total_bytes: null, free_bytes: null };
+    }
+  });
+  const networks = {};
+  for (const [name, rows] of Object.entries(os.networkInterfaces())) {
+    networks[name] = (rows || []).map((row) => ({
+      address: row.address,
+      family: row.family,
+      internal: row.internal,
+      mac: row.mac
+    }));
+  }
+  return {
+    hostname: os.hostname(),
+    platform: os.platform(),
+    arch: os.arch(),
+    release: os.release(),
+    uptime_seconds: Math.round(os.uptime()),
+    cpu_model: cpus[0]?.model || "",
+    cpu_threads: cpus.length,
+    loadavg: os.loadavg(),
+    memory_total_bytes: os.totalmem(),
+    memory_free_bytes: os.freemem(),
+    disks,
+    networks,
+    updated_at: new Date().toISOString()
+  };
+}
+
+function parseCsvLine(line) {
+  const values = [];
+  let current = "";
+  let quoted = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '"') {
+      if (quoted && line[i + 1] === '"') { current += '"'; i++; }
+      else quoted = !quoted;
+    } else if (ch === "," && !quoted) {
+      values.push(current);
+      current = "";
+    } else current += ch;
+  }
+  values.push(current);
+  return values;
+}
+
+function processList(limit = 200) {
+  const cap = Math.max(1, Math.min(500, Number(limit) || 200));
+  if (process.platform === "win32") {
+    const out = spawnSync("tasklist.exe", ["/fo", "csv", "/nh"], { encoding: "utf8", windowsHide: true, timeout: 15000 });
+    if (out.error) throw out.error;
+    return String(out.stdout || "").split(/\r?\n/).filter(Boolean).slice(0, cap).map((line) => {
+      const [name, pid, session_name, session_number, memory] = parseCsvLine(line);
+      return { pid: Number(pid) || 0, name, session_name, session_number, memory };
+    });
+  }
+  const out = spawnSync("ps", ["-eo", "pid=,ppid=,comm=,%cpu=,%mem="], { encoding: "utf8", timeout: 15000 });
+  if (out.error) throw out.error;
+  return String(out.stdout || "").split(/\r?\n/).map((x) => x.trim()).filter(Boolean).slice(0, cap).map((line) => {
+    const match = line.match(/^(\d+)\s+(\d+)\s+(\S+)\s+([\d.]+)\s+([\d.]+)/);
+    return match ? { pid: Number(match[1]), ppid: Number(match[2]), name: match[3], cpu_percent: Number(match[4]), memory_percent: Number(match[5]) } : { raw: line };
+  });
+}
+
+function killProcess(pid) {
+  const value = Number(pid);
+  if (!Number.isInteger(value) || value <= 0) throw new Error("A valid pid is required");
+  if (value === process.pid) throw new Error("Refusing to terminate the DifSync agent");
+  process.kill(value);
+  return { pid: value, terminated: true };
+}
+
+function runGit(args, repo) {
+  const cwd = within(repo);
+  const out = spawnSync("git", args, { cwd, encoding: "utf8", windowsHide: true, timeout: 120000 });
+  if (out.error) throw out.error;
+  const result = {
+    cwd,
+    exit_code: Number(out.status ?? 1),
+    output: String(out.stdout || "") + String(out.stderr || "")
+  };
+  if (result.exit_code !== 0) throw new Error(result.output.trim() || ("git exited with " + result.exit_code));
+  return result;
+}
+
+function gitStatus(repo) {
+  return runGit(["status", "--short", "--branch"], repo);
+}
+
+function gitPull(repo) {
+  return runGit(["pull", "--ff-only"], repo);
+}
+
 function shellCommand(command) {
   if (process.platform === "win32") {
     return { exe: "powershell.exe", args: ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", String(command)] };
@@ -157,7 +262,11 @@ export function inventory() {
       "filesystem.write",
       "filesystem.search",
       "process.run",
-      "process.session"
+      "process.session",
+      "process.inspect",
+      "system.metrics",
+      "git.read",
+      "git.pull"
     ],
     roots: ROOTS,
     memory_bytes: os.totalmem(),
@@ -171,6 +280,11 @@ export async function execute(payload = {}) {
   if (op === "read_file") return readFile(payload.path, payload.offset, payload.length);
   if (op === "list_directory") return { entries: listDirectory(payload.path, payload.depth) };
   if (op === "search_files") return { matches: searchFiles(payload.root, payload.query, Math.max(1, Math.min(200, Number(payload.max_results) || 100))) };
+  if (op === "system_metrics") return systemMetrics();
+  if (op === "process_list") return { processes: processList(payload.limit) };
+  if (op === "kill_process") return killProcess(payload.pid);
+  if (op === "git_status") return gitStatus(payload.repo);
+  if (op === "git_pull") return gitPull(payload.repo);
   if (op === "write_file") {
     const target = within(payload.path);
     fs.mkdirSync(path.dirname(target), { recursive: true });
