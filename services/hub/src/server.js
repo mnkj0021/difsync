@@ -29,6 +29,7 @@ app.use(helmet({
       fontSrc: ["'self'"],
       frameAncestors: ["'none'"],
       baseUri: ["'self'"],
+      formAction: ["'self'", "https://chatgpt.com"],
     },
   },
   crossOriginEmbedderPolicy: false,
