@@ -353,3 +353,9 @@ input[type=range]::-webkit-slider-thumb{appearance:none;width:16px;height:16px;b
 .dash-wordmark{font-size:17px;letter-spacing:-.035em}
 .auth-brand.brand-text{font-size:18px}
 .site-footer .brand-text{font-size:15px}
+
+/* Windows app install */
+.device-app-panel{margin-top:12px}
+.command-box{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:start;padding:12px;border:1px solid var(--line);border-radius:13px;background:#0b0f14}
+.command-box code{display:block;color:#cbd7e4;font:10px/1.6 ui-monospace,SFMono-Regular,Consolas,monospace;overflow-wrap:anywhere;white-space:pre-wrap}
+@media(max-width:640px){.command-box{grid-template-columns:1fr}.command-box .copy-mini{justify-self:start}}
