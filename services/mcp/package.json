@@ -1,0 +1,16 @@
+{
+  "name": "@difsync/mcp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Private MCP device gateway for DifSync",
+  "scripts": {
+    "start": "node src/index.js",
+    "check": "node --check src/index.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/server": "^2.0.0",
+    "better-sqlite3": "^11.10.0",
+    "zod": "^4.1.0"
+  }
+}
