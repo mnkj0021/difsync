@@ -27,7 +27,8 @@ button{color:inherit}
 .wrap{width:min(1180px,calc(100% - 40px));margin:0 auto}
 .noise{position:fixed;inset:0;pointer-events:none;opacity:.025;z-index:100;background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 180 180' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.55'/%3E%3C/svg%3E")}
 .site-header{height:82px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--line)}
-.brand{display:inline-flex;align-items:center;gap:10px;font-weight:720;letter-spacing:-.02em}\n.brand-logo{width:32px;height:32px;display:block;object-fit:contain;filter:drop-shadow(0 0 10px rgba(46,147,255,.18))}
+.brand{display:inline-flex;align-items:center;gap:10px;font-weight:720;letter-spacing:-.02em}
+.brand-logo{width:30px;height:30px;max-width:30px;max-height:30px;display:block;object-fit:contain;flex:0 0 30px}
 .brand-mark{position:relative;width:28px;height:28px;border:1px solid var(--line-2);border-radius:9px;display:block;background:#161a1f;overflow:hidden}
 .brand-mark i{position:absolute;width:18px;height:1px;background:linear-gradient(90deg,var(--accent),var(--accent-2));left:5px;top:9px;transform:rotate(26deg);transform-origin:left center}
 .brand-mark i+ i{top:18px;transform:rotate(-26deg)}
@@ -346,3 +347,9 @@ input[type=range]::-webkit-slider-thumb{appearance:none;width:16px;height:16px;b
   .component-row{grid-template-columns:38px 1fr}
   .component-source{grid-column:2;justify-self:start}
 }
+
+/* Brand restraint */
+.brand-text{gap:0}
+.dash-wordmark{font-size:17px;letter-spacing:-.035em}
+.auth-brand.brand-text{font-size:18px}
+.site-footer .brand-text{font-size:15px}
