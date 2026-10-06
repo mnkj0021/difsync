@@ -3,7 +3,7 @@ import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import crypto from "node:crypto";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import Database from "better-sqlite3";
 import { createMcpHandler, McpServer } from "@modelcontextprotocol/server";
 import { toNodeHandler } from "@modelcontextprotocol/node";
@@ -177,7 +177,10 @@ function readFileLocal(input, offset = 0, length = 65536) {
 
 function listDirectoryLocal(input, depth = 1) {
   const root = localPath(input);
-  const maxDepth = Math.max(0, Math.min(5, Number(depth) || 1));
+  const parsedDepth = Number(depth);
+  const maxDepth = Number.isFinite(parsedDepth)
+    ? Math.max(0, Math.min(5, parsedDepth))
+    : 1;
   const entries = [];
   function walk(dir, level) {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -214,6 +217,64 @@ function searchFilesLocal(input, query, maxResults = 100) {
   }
   walk(root);
   return out;
+}
+
+function systemMetricsLocal() {
+  const cpus = os.cpus();
+  const disks = LOCAL_ROOTS.map((root) => {
+    try {
+      const stat = fs.statfsSync(root);
+      return { root, total_bytes: Number(stat.blocks) * Number(stat.bsize), free_bytes: Number(stat.bavail) * Number(stat.bsize) };
+    } catch {
+      return { root, total_bytes: null, free_bytes: null };
+    }
+  });
+  const networks = {};
+  for (const [name, rows] of Object.entries(os.networkInterfaces())) {
+    networks[name] = (rows || []).map((row) => ({ address: row.address, family: row.family, internal: row.internal, mac: row.mac }));
+  }
+  return {
+    hostname: os.hostname(),
+    platform: process.platform,
+    arch: process.arch,
+    release: os.release(),
+    uptime_seconds: Math.round(os.uptime()),
+    cpu_model: cpus[0]?.model || "",
+    cpu_threads: cpus.length,
+    loadavg: os.loadavg(),
+    memory_total_bytes: os.totalmem(),
+    memory_free_bytes: os.freemem(),
+    disks,
+    networks,
+    updated_at: now()
+  };
+}
+
+function processListLocal(limit = 200) {
+  const cap = Math.max(1, Math.min(500, Number(limit) || 200));
+  const out = spawnSync("ps", ["-eo", "pid=,ppid=,comm=,%cpu=,%mem="], { encoding: "utf8", timeout: 15000 });
+  if (out.error) throw out.error;
+  return String(out.stdout || "").split(/\r?\n/).map((x) => x.trim()).filter(Boolean).slice(0, cap).map((line) => {
+    const match = line.match(/^(\d+)\s+(\d+)\s+(\S+)\s+([\d.]+)\s+([\d.]+)/);
+    return match ? { pid: Number(match[1]), ppid: Number(match[2]), name: match[3], cpu_percent: Number(match[4]), memory_percent: Number(match[5]) } : { raw: line };
+  });
+}
+
+function killProcessLocal(pid) {
+  const value = Number(pid);
+  if (!Number.isInteger(value) || value <= 0) throw new Error("A valid pid is required");
+  if (value === process.pid) throw new Error("Refusing to terminate the DifSync MCP service");
+  process.kill(value);
+  return { pid: value, terminated: true };
+}
+
+function gitLocal(args, repo) {
+  const cwd = localPath(repo);
+  const out = spawnSync("git", args, { cwd, encoding: "utf8", timeout: 120000 });
+  if (out.error) throw out.error;
+  const result = { cwd, exit_code: Number(out.status ?? 1), output: String(out.stdout || "") + String(out.stderr || "") };
+  if (result.exit_code !== 0) throw new Error(result.output.trim() || ("git exited with " + result.exit_code));
+  return result;
 }
 
 function spawnLocal(command, cwd) {
@@ -429,6 +490,68 @@ function createServer(ctx) {
       const target = localPath(targetPath); fs.rmSync(target, { recursive: true, force: Boolean(force) }); return { path: target, deleted: true };
     });
     audit(ctx, "mcp.path.delete", "device", device_id, { path: targetPath, force: Boolean(force) });
+    return result(value);
+  });
+
+  server.registerTool("system_metrics", {
+    title: "Get system metrics",
+    description: "Return structured CPU, memory, disk, uptime and network information for a DifSync device.",
+    inputSchema: z.object({ device_id: z.string().min(1) }),
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    ...authDescriptor(["difsync.read"])
+  }, async ({ device_id }) => {
+    requireScope(ctx, "difsync.read");
+    const value = await onDevice(ctx, device_id, { op: "system_metrics" }, async () => systemMetricsLocal());
+    return result(value);
+  });
+
+  server.registerTool("process_list", {
+    title: "List system processes",
+    description: "Return a structured list of running processes on a DifSync device without requiring a raw shell command.",
+    inputSchema: z.object({ device_id: z.string().min(1), limit: z.number().int().min(1).max(500).optional() }),
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    ...authDescriptor(["difsync.read"])
+  }, async ({ device_id, limit }) => {
+    requireScope(ctx, "difsync.read");
+    const value = await onDevice(ctx, device_id, { op: "process_list", limit }, async () => ({ processes: processListLocal(limit) }));
+    return result(value);
+  });
+
+  server.registerTool("kill_process", {
+    title: "Terminate system process",
+    description: "Terminate one process by PID on a DifSync device.",
+    inputSchema: z.object({ device_id: z.string().min(1), pid: z.number().int().positive() }),
+    annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
+    ...authDescriptor(["difsync.execute"])
+  }, async ({ device_id, pid }) => {
+    requireScope(ctx, "difsync.execute");
+    const value = await onDevice(ctx, device_id, { op: "kill_process", pid }, async () => killProcessLocal(pid));
+    audit(ctx, "mcp.process.kill", "device", device_id, { pid });
+    return result(value);
+  });
+
+  server.registerTool("git_status", {
+    title: "Get Git repository status",
+    description: "Return structured Git status output for a repository on a DifSync device.",
+    inputSchema: z.object({ device_id: z.string().min(1), repo: z.string().min(1) }),
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    ...authDescriptor(["difsync.read"])
+  }, async ({ device_id, repo }) => {
+    requireScope(ctx, "difsync.read");
+    const value = await onDevice(ctx, device_id, { op: "git_status", repo }, async () => gitLocal(["status", "--short", "--branch"], repo));
+    return result(value);
+  });
+
+  server.registerTool("git_pull", {
+    title: "Fast-forward Git repository",
+    description: "Run git pull --ff-only in a repository on a DifSync device.",
+    inputSchema: z.object({ device_id: z.string().min(1), repo: z.string().min(1) }),
+    annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
+    ...authDescriptor(["difsync.execute"])
+  }, async ({ device_id, repo }) => {
+    requireScope(ctx, "difsync.execute");
+    const value = await onDevice(ctx, device_id, { op: "git_pull", repo }, async () => gitLocal(["pull", "--ff-only"], repo));
+    audit(ctx, "mcp.git.pull", "device", device_id, { repo });
     return result(value);
   });
 
