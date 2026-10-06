@@ -149,8 +149,10 @@ function renderDevices() {
   }
   root.innerHTML = state.agents.map((agent) => {
     const lastSeen = agent.last_seen ? new Date(agent.last_seen).toLocaleString() : "Not reported";
+    const sync = agent.inventory?.sync || {};
+    const syncStatus = sync.online ? "Lighting Sync online" : "Lighting Sync unavailable";
     return `
-      <article class="system-card remote-system-card">
+      <article class="system-card remote-system-card" data-system-card="${escapeAttr(agent.id)}">
         <div class="system-card-head">
           <span class="system-kind">Remote system</span>
           <span class="system-status"><i class="online-dot ${agent.online ? "on" : ""}"></i>${agent.online ? "Online" : "Offline"}</span>
@@ -163,10 +165,143 @@ function renderDevices() {
           <div><dt>Agent ID</dt><dd>${escapeHtml(agent.id)}</dd></div>
           <div><dt>Last seen</dt><dd>${escapeHtml(lastSeen)}</dd></div>
           <div><dt>Remote access</dt><dd>${agent.online ? "Available" : "Unavailable"}</dd></div>
+          <div><dt>Lighting</dt><dd>${escapeHtml(syncStatus)}</dd></div>
         </dl>
+        <div class="system-actions">
+          <button class="button button-soft system-inspect-button" data-inspect-device="${escapeAttr(agent.id)}" ${agent.online ? "" : "disabled"}>Open system details</button>
+        </div>
+        <div class="system-detail-panel hidden" data-device-detail="${escapeAttr(agent.id)}"></div>
       </article>
     `;
   }).join("");
+
+  $("[data-inspect-device]", root).forEach((button) => {
+    button.addEventListener("click", () => loadDeviceDetails(button.dataset.inspectDevice, button));
+  });
+}
+
+function formatBytes(value) {
+  const bytes = Number(value);
+  if (!Number.isFinite(bytes) || bytes < 0) return "Unknown";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let size = bytes;
+  let unit = 0;
+  while (size >= 1024 && unit < units.length - 1) {
+    size /= 1024;
+    unit += 1;
+  }
+  return (unit < 2 ? Math.round(size) : size.toFixed(size >= 100 ? 0 : 1)) + " " + units[unit];
+}
+
+function formatUptime(seconds) {
+  const total = Math.max(0, Number(seconds) || 0);
+  const days = Math.floor(total / 86400);
+  const hours = Math.floor((total % 86400) / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  return [days ? days + "d" : "", hours ? hours + "h" : "", minutes + "m"].filter(Boolean).join(" ");
+}
+
+async function loadDeviceDetails(agentId, button) {
+  const panel = document.querySelector(`[data-device-detail="${CSS.escape(agentId)}"]`);
+  if (!panel) return;
+
+  if (!panel.classList.contains("hidden") && panel.dataset.loaded === "true") {
+    panel.classList.add("hidden");
+    button.textContent = "Open system details";
+    return;
+  }
+
+  panel.classList.remove("hidden");
+  panel.innerHTML = `<div class="device-detail-loading">Loading structured system data...</div>`;
+  button.disabled = true;
+  button.textContent = "Loading...";
+
+  try {
+    const [metricsResponse, processResponse, commandResponse] = await Promise.all([
+      api("/api/agents/" + encodeURIComponent(agentId) + "/inspect", {
+        method: "POST",
+        body: JSON.stringify({ op: "system_metrics" }),
+      }),
+      api("/api/agents/" + encodeURIComponent(agentId) + "/inspect", {
+        method: "POST",
+        body: JSON.stringify({ op: "process_list", limit: 80 }),
+      }),
+      api("/api/commands?agent_id=" + encodeURIComponent(agentId)),
+    ]);
+
+    const metrics = metricsResponse.result || {};
+    const processes = Array.isArray(processResponse.result?.processes) ? processResponse.result.processes : [];
+    const commands = Array.isArray(commandResponse.commands) ? commandResponse.commands.slice(0, 8) : [];
+    const memoryUsed = Math.max(0, Number(metrics.memory_total_bytes || 0) - Number(metrics.memory_free_bytes || 0));
+    const disks = Array.isArray(metrics.disks) ? metrics.disks : [];
+    const networks = metrics.networks && typeof metrics.networks === "object" ? metrics.networks : {};
+
+    panel.innerHTML = `
+      <div class="device-detail-grid">
+        <div><span>CPU</span><b>${escapeHtml(metrics.cpu_model || "Unknown")}</b><small>${escapeHtml(String(metrics.cpu_threads || 0))} threads</small></div>
+        <div><span>Memory</span><b>${escapeHtml(formatBytes(memoryUsed))} used</b><small>${escapeHtml(formatBytes(metrics.memory_total_bytes))} total</small></div>
+        <div><span>Uptime</span><b>${escapeHtml(formatUptime(metrics.uptime_seconds))}</b><small>${escapeHtml(metrics.release || "")}</small></div>
+        <div><span>Network</span><b>${Object.keys(networks).length} adapters</b><small>Structured inventory</small></div>
+      </div>
+      <div class="device-detail-section">
+        <div class="device-detail-head"><b>Drives</b><small>${disks.length} roots</small></div>
+        <div class="drive-list">
+          ${disks.map((disk) => {
+            const total = Number(disk.total_bytes || 0);
+            const free = Number(disk.free_bytes || 0);
+            const usedPct = total > 0 ? Math.max(0, Math.min(100, Math.round(((total - free) / total) * 100))) : 0;
+            return `<div class="drive-row"><code>${escapeHtml(disk.root || "")}</code><span>${escapeHtml(formatBytes(free))} free of ${escapeHtml(formatBytes(total))}</span><i><u style="width:${usedPct}%"></u></i></div>`;
+          }).join("") || '<div class="detail-empty">No drive data returned.</div>'}
+        </div>
+      </div>
+      <div class="device-detail-section">
+        <div class="device-detail-head"><b>Processes</b><small>${processes.length} shown</small></div>
+        <div class="process-list">
+          ${processes.slice(0, 30).map((proc) => `
+            <div class="process-row">
+              <div><b>${escapeHtml(proc.name || proc.raw || "Process")}</b><small>PID ${escapeHtml(String(proc.pid || ""))}${proc.memory ? " · " + escapeHtml(proc.memory) : ""}</small></div>
+              ${proc.pid ? `<button class="process-kill" data-kill-process="${escapeAttr(String(proc.pid))}" data-agent="${escapeAttr(agentId)}">Terminate</button>` : ""}
+            </div>
+          `).join("") || '<div class="detail-empty">No processes returned.</div>'}
+        </div>
+      </div>
+      <div class="device-detail-section">
+        <div class="device-detail-head"><b>Recent activity</b><small>${commands.length} commands</small></div>
+        <div class="command-mini-list">
+          ${commands.map((cmd) => `<div><span>${escapeHtml(cmd.target || "command")}</span><b class="command-state ${escapeAttr(cmd.status || "")}">${escapeHtml(cmd.status || "unknown")}</b><small>${escapeHtml(cmd.message || new Date(cmd.created_at).toLocaleString())}</small></div>`).join("") || '<div class="detail-empty">No command history yet.</div>'}
+        </div>
+      </div>
+    `;
+
+    panel.dataset.loaded = "true";
+    button.textContent = "Hide system details";
+    $("[data-kill-process]", panel).forEach((killButton) => {
+      killButton.addEventListener("click", async () => {
+        const pid = Number(killButton.dataset.killProcess);
+        if (!pid || !window.confirm("Terminate process PID " + pid + " on this device?")) return;
+        killButton.disabled = true;
+        killButton.textContent = "Stopping...";
+        try {
+          await api("/api/agents/" + encodeURIComponent(agentId) + "/processes/" + pid + "/terminate", {
+            method: "POST",
+            body: "{}",
+          });
+          showToast("Process " + pid + " terminated");
+          panel.dataset.loaded = "false";
+          await loadDeviceDetails(agentId, button);
+        } catch (error) {
+          showToast(error.message, true);
+          killButton.disabled = false;
+          killButton.textContent = "Terminate";
+        }
+      });
+    });
+  } catch (error) {
+    panel.innerHTML = `<div class="device-detail-error">${escapeHtml(error.message || "Unable to inspect this device.")}</div>`;
+    button.textContent = "Retry system details";
+  } finally {
+    button.disabled = false;
+  }
 }
 
 function renderSyncComponents() {
