@@ -77,7 +77,7 @@ export async function syncInventory(force = false) {
   };
 
   try {
-    const health = await requestJson("/api/health", {}, 1800);
+    const health = await requestJson("/api/health", {}, 8000);
     value.sync = {
       ...value.sync,
       online: true,
@@ -85,8 +85,8 @@ export async function syncInventory(force = false) {
     };
 
     const [pc, room] = await Promise.allSettled([
-      requestJson("/api/openrgb/devices", {}, 3500),
-      requestJson("/api/govee/devices", {}, 5000)
+      requestJson("/api/openrgb/devices", {}, 12000),
+      requestJson("/api/govee/devices", {}, 12000)
     ]);
 
     if (pc.status === "fulfilled") value.pc_devices = Array.isArray(pc.value.devices) ? pc.value.devices : [];
