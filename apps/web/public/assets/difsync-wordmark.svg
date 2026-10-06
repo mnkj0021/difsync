@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 860 220" role="img" aria-label="DifSync">
+<defs>
+  <linearGradient id="d" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#5ff3ff"/><stop offset=".48" stop-color="#1a9cff"/><stop offset="1" stop-color="#3147ff"/></linearGradient>
+  <linearGradient id="b" x1="0" y1="0" x2=".8" y2="1"><stop stop-color="#5fe7ff"/><stop offset=".55" stop-color="#187fff"/><stop offset="1" stop-color="#6137ff"/></linearGradient>
+  <linearGradient id="t" x1="0" x2="1"><stop stop-color="#f7fbff"/><stop offset=".38" stop-color="#d7e6f5"/><stop offset=".58" stop-color="#72ddff"/><stop offset="1" stop-color="#3777ff"/></linearGradient>
+</defs>
+<g transform="translate(12 8) scale(.8)">
+  <path d="M67 52h69c43 0 75 31 75 76 0 44-32 76-75 76H88l28-38h20c20 0 35-15 35-38 0-24-15-39-35-39H99z" fill="url(#d)"/>
+  <path d="M89 72 47 151h45l-27 53 89-99h-48l26-33z" fill="url(#b)"/>
+  <ellipse cx="128" cy="128" rx="102" ry="55" fill="none" stroke="#54dfff" stroke-width="4" opacity=".8" transform="rotate(-17 128 128)"/>
+  <circle cx="222" cy="102" r="7" fill="#a8ffff"/>
+</g>
+<text x="225" y="137" fill="url(#t)" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="110" font-weight="800" letter-spacing="-6">DifSync</text>
+<text x="229" y="184" fill="#8ea4bd" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="22" font-weight="600" letter-spacing="11">DEVICES IN SYNC</text>
+</svg>
