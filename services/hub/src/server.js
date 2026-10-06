@@ -29,7 +29,6 @@ app.use(helmet({
       fontSrc: ["'self'"],
       frameAncestors: ["'none'"],
       baseUri: ["'self'"],
-      formAction: ["'self'"],
     },
   },
   crossOriginEmbedderPolicy: false,
