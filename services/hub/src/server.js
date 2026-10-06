@@ -418,7 +418,7 @@ app.use(express.static(config.publicDir, {
   index: false,
 }));
 
-app.get(["/", "/app", "/app/*"], (_req, res) => {
+app.get(["/", "/app", "/app/*", "/devices"], (_req, res) => {
   res.sendFile(path.join(config.publicDir, "index.html"));
 });
 
