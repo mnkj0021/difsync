@@ -35,6 +35,7 @@ app.use(helmet({
   crossOriginEmbedderPolicy: false,
 }));
 app.use(express.json({ limit: "512kb" }));
+app.use(express.urlencoded({ extended: false, limit: "512kb" }));
 app.use(express.urlencoded({ extended: false, limit: "128kb" }));
 installOAuth(app);
 
