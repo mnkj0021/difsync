@@ -302,8 +302,8 @@ function setPage(page, updateUrl = true) {
     account: { title: "Settings", kicker: "Account", path: "/account" },
   };
   const current = meta[page] || meta.overview;
-  $(".dash-nav").forEach((button) => button.classList.toggle("active", button.dataset.page === page));
-  $(".dash-page").forEach((node) => node.classList.add("hidden"));
+  $$(".dash-nav").forEach((button) => button.classList.toggle("active", button.dataset.page === page));
+  $$(".dash-page").forEach((node) => node.classList.add("hidden"));
   $("#page-" + page)?.classList.remove("hidden");
   $("#page-title").textContent = current.title;
   $("#page-kicker").textContent = current.kicker;
