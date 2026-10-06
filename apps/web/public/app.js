@@ -8,6 +8,7 @@ const state = {
   catalog: [],
   authMode: "login",
   connector: null,
+  pairPlatform: "windows",
 };
 
 function showToast(message, isError = false) {
@@ -38,7 +39,7 @@ async function api(path, options = {}) {
 }
 
 function route() {
-  const inApp = location.pathname === "/app" || location.pathname.startsWith("/app/");
+  const inApp = location.pathname === "/app" || location.pathname.startsWith("/app/") || location.pathname === "/devices";
   $("#site-view").classList.toggle("hidden", inApp);
   $("#app-view").classList.toggle("hidden", !inApp);
   if (inApp) initApp();
@@ -79,6 +80,7 @@ async function initApp() {
     state.user = data.user;
     showDashboard();
     await loadDashboard();
+    if (location.pathname === "/devices") setPage("devices", false);
   } catch (error) {
     if (error.status !== 401) showToast(error.message, true);
     showAuth();
@@ -248,11 +250,15 @@ async function submitConnector(event) {
   }
 }
 
-function setPage(page) {
-  $$(".dash-nav").forEach((button) => button.classList.toggle("active", button.dataset.page === page));
+function setPage(page, updateUrl = true) {
+  $(".dash-nav").forEach((button) => button.classList.toggle("active", button.dataset.page === page));
   $$(".dash-page").forEach((node) => node.classList.add("hidden"));
   $("#page-" + page)?.classList.remove("hidden");
   $("#page-title").textContent = page.slice(0, 1).toUpperCase() + page.slice(1);
+  if (updateUrl) {
+    const next = page === "devices" ? "/devices" : "/app";
+    if (location.pathname !== next) history.pushState({ page }, "", next);
+  }
 }
 
 function escapeHtml(value) {
@@ -304,17 +310,48 @@ document.addEventListener("DOMContentLoaded", () => {
     catch (error) { showToast(error.message, true); }
   });
 
-  $("#pair-button")?.addEventListener("click", () => $("#pair-dialog").showModal());
+  const openPairDialog = () => {
+    $("#pair-code-wrap").classList.add("hidden");
+    $("#pair-dialog").showModal();
+  };
+  $("#pair-button")?.addEventListener("click", openPairDialog);
+  $("#devices-add-button")?.addEventListener("click", openPairDialog);
+
+  $(".pair-platform").forEach((button) => button.addEventListener("click", () => {
+    state.pairPlatform = button.dataset.platform || "windows";
+    $(".pair-platform").forEach((item) => item.classList.toggle("active", item === button));
+    $("#pair-code-wrap").classList.add("hidden");
+  }));
+
   $("#generate-pair")?.addEventListener("click", async () => {
     try {
       const data = await api("/api/pairing-codes", { method: "POST", body: "{}" });
       $("#pair-code").textContent = data.code;
       $("#pair-expiry").textContent = "Expires " + new Date(data.expires_at).toLocaleTimeString();
+      const repo = "https://raw.githubusercontent.com/mnkj0021/difsync/main/agents/device-agent/install-windows.ps1";
+      const windows = `powershell -NoProfile -ExecutionPolicy Bypass -Command "iwr '${repo}' -OutFile '$env:TEMP\\difsync-install.ps1'; & '$env:TEMP\\difsync-install.ps1' -PairCode '${data.code}'"`;
+      const linux = `git clone https://github.com/mnkj0021/difsync.git ~/difsync-agent 2>/dev/null || git -C ~/difsync-agent pull --ff-only; cd ~/difsync-agent && npm install && DIFSYNC_PAIR_CODE='${data.code}' npm run agent`;
+      const command = state.pairPlatform === "linux" ? linux : windows;
+      $("#pair-install-label").textContent = state.pairPlatform === "linux" ? "Run in a terminal" : "Run in PowerShell";
+      $("#pair-install-command").textContent = command;
       $("#pair-code-wrap").classList.remove("hidden");
     } catch (error) { showToast(error.message, true); }
   });
 
-  $$(".modal-close").forEach((button) => button.addEventListener("click", () => $("#" + button.dataset.close)?.close()));
+  $("#copy-pair-code")?.addEventListener("click", async () => {
+    await navigator.clipboard.writeText($("#pair-code").textContent || "");
+    showToast("Pairing code copied");
+  });
+  $("#copy-pair-command")?.addEventListener("click", async () => {
+    await navigator.clipboard.writeText($("#pair-install-command").textContent || "");
+    showToast("Install command copied");
+  });
+
+  window.addEventListener("popstate", () => {
+    setPage(location.pathname === "/devices" ? "devices" : "overview", false);
+  });
+
+  $(".modal-close").forEach((button) => button.addEventListener("click", () => $("#" + button.dataset.close)?.close()));
   $("#connector-form")?.addEventListener("submit", submitConnector);
 
   const brightness = $("#scene-brightness");
