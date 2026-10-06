@@ -10,6 +10,7 @@
     "dev": "npm --workspace services/hub run dev",
     "check": "npm --workspace services/hub run check && npm --workspace services/mcp run check && npm --workspace agents/device-agent run check",
     "mcp": "npm --workspace services/mcp start",
+    "mcp:http": "npm --workspace services/mcp run start:http",
     "agent": "npm --workspace agents/device-agent start"
   }
 }
