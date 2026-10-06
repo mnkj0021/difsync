@@ -4,10 +4,12 @@
   "private": true,
   "description": "Open-source lighting orchestration across PC RGB and smart-home ecosystems.",
   "license": "MIT",
-  "workspaces": ["services/*"],
+  "workspaces": ["services/*", "agents/*"],
   "scripts": {
     "start": "npm --workspace services/hub start",
     "dev": "npm --workspace services/hub run dev",
-    "check": "npm --workspace services/hub run check"
+    "check": "npm --workspace services/hub run check && npm --workspace services/mcp run check && npm --workspace agents/device-agent run check",
+    "mcp": "npm --workspace services/mcp start",
+    "agent": "npm --workspace agents/device-agent start"
   }
 }
