@@ -58,9 +58,9 @@ $red = [System.Drawing.Color]::FromArgb(182,121,121)
 
 $form = New-Object System.Windows.Forms.Form
 $form.Text = "DifSync"
-$form.ClientSize = New-Object System.Drawing.Size -ArgumentList 500,390
-$form.MinimumSize = New-Object System.Drawing.Size -ArgumentList 516,429
-$form.MaximumSize = New-Object System.Drawing.Size -ArgumentList 516,429
+$form.ClientSize = New-Object System.Drawing.Size -ArgumentList 500,440
+$form.MinimumSize = New-Object System.Drawing.Size -ArgumentList 516,479
+$form.MaximumSize = New-Object System.Drawing.Size -ArgumentList 516,479
 $form.StartPosition = "CenterScreen"
 $form.BackColor = $bg
 $form.ForeColor = $text
@@ -152,8 +152,20 @@ $webButton.ForeColor = $text
 $webButton.Font = [System.Drawing.Font]::new("Segoe UI", [single]9, [System.Drawing.FontStyle]::Bold, [System.Drawing.GraphicsUnit]::Point)
 $form.Controls.Add($webButton)
 
+$updateButton = New-Object System.Windows.Forms.Button
+$updateButton.Location = New-Object System.Drawing.Point -ArgumentList 28,371
+$updateButton.Size = New-Object System.Drawing.Size -ArgumentList 444,34
+$updateButton.Text = "Update DifSync"
+$updateButton.FlatStyle = "Flat"
+$updateButton.FlatAppearance.BorderColor = $line
+$updateButton.FlatAppearance.BorderSize = 1
+$updateButton.BackColor = $panel2
+$updateButton.ForeColor = $text
+$updateButton.Font = [System.Drawing.Font]::new("Segoe UI", [single]8.5, [System.Drawing.FontStyle]::Bold, [System.Drawing.GraphicsUnit]::Point)
+$form.Controls.Add($updateButton)
+
 $trayCheck = New-Object System.Windows.Forms.CheckBox
-$trayCheck.Location = New-Object System.Drawing.Point -ArgumentList 28,366
+$trayCheck.Location = New-Object System.Drawing.Point -ArgumentList 28,415
 $trayCheck.Size = New-Object System.Drawing.Size -ArgumentList 150,20
 $trayCheck.Text = "Minimize to tray"
 $trayCheck.Checked = $true
@@ -162,7 +174,7 @@ $trayCheck.BackColor = $bg
 $trayCheck.Font = [System.Drawing.Font]::new("Segoe UI", [single]8, [System.Drawing.FontStyle]::Regular, [System.Drawing.GraphicsUnit]::Point)
 $form.Controls.Add($trayCheck)
 
-$closeHint = New-Label "Close = PC offline" 330 366 142 18 8 $muted2 $false
+$closeHint = New-Label "Close = PC offline" 330 415 142 18 8 $muted2 $false
 $closeHint.TextAlign = [System.Drawing.ContentAlignment]::MiddleRight
 $form.Controls.Add($closeHint)
 
@@ -174,6 +186,7 @@ $tray.Visible = $false
 $menu = New-Object System.Windows.Forms.ContextMenuStrip
 $openItem = $menu.Items.Add("Open DifSync")
 $connectItem = $menu.Items.Add("Disconnect")
+$updateItem = $menu.Items.Add("Update DifSync")
 $menu.Items.Add("-") | Out-Null
 $exitItem = $menu.Items.Add("Exit")
 $tray.ContextMenuStrip = $menu
@@ -259,11 +272,43 @@ function Send-ToTray {
   $form.Hide()
 }
 
+function Start-SelfUpdate {
+  try {
+    $updateButton.Enabled = $false
+    $updateButton.Text = "Updating..."
+    $updateItem.Enabled = $false
+
+    $tempInstaller = Join-Path $env:TEMP "difsync-install.ps1"
+    $command = "Start-Sleep -Milliseconds 900; iwr 'https://difsync.com/install/windows.ps1' -UseBasicParsing -OutFile '$tempInstaller'; & '$tempInstaller'"
+
+    Start-Process -FilePath "powershell.exe" -ArgumentList @(
+      "-NoProfile",
+      "-ExecutionPolicy", "Bypass",
+      "-Command", $command
+    ) -WindowStyle Hidden
+
+    $script:realExit = $true
+    $form.Close()
+  } catch {
+    $updateButton.Enabled = $true
+    $updateButton.Text = "Update DifSync"
+    $updateItem.Enabled = $true
+    [System.Windows.Forms.MessageBox]::Show(
+      ("Update could not start." + [Environment]::NewLine + [Environment]::NewLine + $_.Exception.Message),
+      "DifSync",
+      [System.Windows.Forms.MessageBoxButtons]::OK,
+      [System.Windows.Forms.MessageBoxIcon]::Error
+    ) | Out-Null
+  }
+}
+
 $toggleButton.Add_Click({
   if ($script:connected) { Stop-Agent } else { Start-Agent }
 })
 $webButton.Add_Click({ Start-Process "https://difsync.com/devices" })
+$updateButton.Add_Click({ Start-SelfUpdate })
 $openItem.Add_Click({ Restore-Window })
+$updateItem.Add_Click({ Start-SelfUpdate })
 $connectItem.Add_Click({
   if ($script:connected) { Stop-Agent } else { Start-Agent }
 })
