@@ -31,9 +31,14 @@ foreach ($name in @("dashboard_server.py","pc_native_backend.py","pc_corsair_ram
 $clientSource = Join-Path $source "clients\difsync-react"
 $clientTarget = Join-Path $SyncRoot "clients\difsync-react"
 if (Test-Path $clientSource) {
-  New-Item -ItemType Directory -Force -Path $clientTarget | Out-Null
-  Get-ChildItem $clientSource -Force | ForEach-Object {
-    Copy-Item -Recurse -Force $_.FullName (Join-Path $clientTarget $_.Name)
+  New-Item -ItemType Directory -Force -Path $clientTarget,(Join-Path $clientTarget "src") | Out-Null
+  foreach ($name in @(".gitignore","capacitor.config.ts","index.html","package-lock.json","package.json","tsconfig.json","vercel.json","vite.config.ts")) {
+    $from = Join-Path $clientSource $name
+    if (Test-Path $from) { Copy-Item -Force $from (Join-Path $clientTarget $name) }
+  }
+  foreach ($name in @("App.tsx","difsyncClient.ts","main.tsx","style.css")) {
+    $from = Join-Path $clientSource ("src\" + $name)
+    if (Test-Path $from) { Copy-Item -Force $from (Join-Path $clientTarget ("src\" + $name)) }
   }
 }
 
@@ -41,8 +46,9 @@ $desktopSource = Join-Path $source "clients\desktop-electron"
 $desktopTarget = Join-Path $SyncRoot "clients\desktop-electron"
 if (Test-Path $desktopSource) {
   New-Item -ItemType Directory -Force -Path $desktopTarget | Out-Null
-  Get-ChildItem $desktopSource -Force | ForEach-Object {
-    Copy-Item -Recurse -Force $_.FullName (Join-Path $desktopTarget $_.Name)
+  foreach ($name in @("main.js","preload.js","package.json","difsync-iota.png")) {
+    $from = Join-Path $desktopSource $name
+    if (Test-Path $from) { Copy-Item -Force $from (Join-Path $desktopTarget $name) }
   }
 }
 
