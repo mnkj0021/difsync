@@ -300,6 +300,17 @@ browser → hub → local agent</code></pre>
               </div>
             </div>
             <div id="device-page-list" class="device-page-list"></div>
+            <section class="panel device-app-panel">
+              <div class="panel-head">
+                <div><span class="eyebrow">Windows app</span><h2>Install or repair DifSync</h2></div>
+                <span class="status-pill">On demand</span>
+              </div>
+              <p class="panel-copy">Already paired? Run this command on Windows to install or repair the local DifSync dashboard. Opening the app makes the PC reachable. Closing it takes the PC offline.</p>
+              <div class="command-box">
+                <code id="windows-app-command">powershell -NoProfile -ExecutionPolicy Bypass -Command "iwr 'https://difsync.com/install/windows.ps1' -UseBasicParsing -OutFile '$env:TEMP\difsync-install.ps1'; &amp; '$env:TEMP\difsync-install.ps1'"</code>
+                <button id="copy-windows-app-command" class="copy-mini" type="button">Copy</button>
+              </div>
+            </section>
           </section>
 
           <section id="page-connectors" class="dash-page hidden">
@@ -368,7 +379,7 @@ browser → hub → local agent</code></pre>
         <pre id="pair-install-command"></pre>
         <button id="copy-pair-command" class="button button-quiet full" type="button">Copy install command</button>
       </div>
-      <p class="pair-note">The agent pairs once, stores its device token locally, then starts automatically when you sign in.</p>
+      <p class="pair-note">Windows installs a small on-demand DifSync app. Open it when you want this PC reachable; close it to take the PC offline. You can optionally minimize it to the system tray.</p>
     </div>
   </dialog>
 
