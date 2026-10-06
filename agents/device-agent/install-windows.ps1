@@ -36,9 +36,20 @@ $lines += "node agents\device-agent\src\index.js"
 $lines | Set-Content -Path $runner -Encoding ASCII
 
 $taskName = "DifSync Device Agent"
-schtasks /Delete /TN "$taskName" /F 2>$null | Out-Null
+
+# Deleting a task that does not exist is normal on first install. Windows
+# PowerShell can surface schtasks.exe stderr as a terminating NativeCommandError
+# while ErrorActionPreference is Stop, so probe through cmd.exe first.
+cmd.exe /c "schtasks /Query /TN `"$taskName`" >nul 2>&1"
+if ($LASTEXITCODE -eq 0) {
+  schtasks /Delete /TN "$taskName" /F | Out-Null
+}
+
 schtasks /Create /TN "$taskName" /TR """$runner""" /SC ONLOGON /RL LIMITED /F | Out-Null
+if ($LASTEXITCODE -ne 0) { throw "Failed to create the DifSync startup task." }
+
 schtasks /Run /TN "$taskName" | Out-Null
+if ($LASTEXITCODE -ne 0) { throw "DifSync paired successfully, but the startup task could not be started." }
 
 Write-Host "DifSync Agent installed and started."
 Write-Host "State: $state"
