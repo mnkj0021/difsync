@@ -235,6 +235,13 @@ function installOAuth(app) {
   app.post("/oauth/authorize", (req, res) => {
     let ctx;
     try {
+      console.log("[DifSync OAuth] authorize POST", {
+        client_id: String(req.body?.client_id || ""),
+        redirect_uri: String(req.body?.redirect_uri || ""),
+        scope: String(req.body?.scope || ""),
+        has_email: Boolean(req.body?.email),
+        has_password: Boolean(req.body?.password)
+      });
       ctx = validateAuthorize(req.body || {});
       let user = currentSession(req);
       if (!user) {
@@ -250,8 +257,14 @@ function installOAuth(app) {
       const target = new URL(ctx.redirectUri);
       target.searchParams.set("code", code);
       if (ctx.state) target.searchParams.set("state", ctx.state);
+      console.log("[DifSync OAuth] authorization code issued", {
+        client_id: ctx.clientId,
+        redirect_uri: ctx.redirectUri,
+        user_id: user.user_id
+      });
       res.redirect(302, target.toString());
     } catch (error) {
+      console.error("[DifSync OAuth] authorize failed:", String(error?.stack || error));
       res.status(400).type("html").send("<h1>OAuth request rejected</h1><p>" + html(error?.message || error) + "</p>");
     }
   });
@@ -260,16 +273,44 @@ function installOAuth(app) {
     res.setHeader("Cache-Control", "no-store");
     res.setHeader("Pragma", "no-cache");
     const grant = String(req.body?.grant_type || "");
+    console.log("[DifSync OAuth] token POST", {
+      grant_type: grant,
+      client_id: String(req.body?.client_id || ""),
+      redirect_uri: String(req.body?.redirect_uri || ""),
+      has_code: Boolean(req.body?.code),
+      has_verifier: Boolean(req.body?.code_verifier),
+      has_refresh_token: Boolean(req.body?.refresh_token)
+    });
 
     if (grant === "authorization_code") {
       const code = q.code.get(tokenDigest(req.body?.code), Date.now());
       if (!code) return res.status(400).json({ error: "invalid_grant" });
-      if (String(req.body?.client_id || "") !== code.client_id) return res.status(400).json({ error: "invalid_client" });
-      if (String(req.body?.redirect_uri || "") !== code.redirect_uri) return res.status(400).json({ error: "invalid_grant" });
+      if (String(req.body?.client_id || "") !== code.client_id) {
+        console.error("[DifSync OAuth] token failed: client_id mismatch");
+        return res.status(400).json({ error: "invalid_client" });
+      }
+      let tokenRedirect;
+      try { tokenRedirect = safeRedirect(req.body?.redirect_uri); }
+      catch {
+        console.error("[DifSync OAuth] token failed: invalid redirect_uri");
+        return res.status(400).json({ error: "invalid_grant" });
+      }
+      if (tokenRedirect !== code.redirect_uri) {
+        console.error("[DifSync OAuth] token failed: redirect_uri mismatch", { received: tokenRedirect, expected: code.redirect_uri });
+        return res.status(400).json({ error: "invalid_grant" });
+      }
       const verifier = String(req.body?.code_verifier || "");
-      if (!verifier || b64urlSha256(verifier) !== code.code_challenge) return res.status(400).json({ error: "invalid_grant" });
-      if (q.useCode.run(now(), code.code_hash).changes !== 1) return res.status(400).json({ error: "invalid_grant" });
-      return res.json(issueToken({ clientId: code.client_id, userId: code.user_id, scope: code.scope }));
+      if (!verifier || b64urlSha256(verifier) !== code.code_challenge) {
+        console.error("[DifSync OAuth] token failed: PKCE verification failed");
+        return res.status(400).json({ error: "invalid_grant" });
+      }
+      if (q.useCode.run(now(), code.code_hash).changes !== 1) {
+        console.error("[DifSync OAuth] token failed: authorization code already used");
+        return res.status(400).json({ error: "invalid_grant" });
+      }
+      const issued = issueToken({ clientId: code.client_id, userId: code.user_id, scope: code.scope });
+      console.log("[DifSync OAuth] token issued", { client_id: code.client_id, user_id: code.user_id, scope: code.scope });
+      return res.json(issued);
     }
 
     if (grant === "refresh_token") {
