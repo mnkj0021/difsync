@@ -33,6 +33,7 @@ CREATE TABLE IF NOT EXISTS oauth_tokens (
   client_id TEXT NOT NULL,
   user_id TEXT NOT NULL,
   scope TEXT NOT NULL,
+  resource TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL,
   expires_at INTEGER NOT NULL,
   refresh_expires_at INTEGER NOT NULL,
@@ -40,8 +41,12 @@ CREATE TABLE IF NOT EXISTS oauth_tokens (
 );
 `);
 
+try { db.exec("ALTER TABLE oauth_tokens ADD COLUMN resource TEXT NOT NULL DEFAULT ''"); } catch (error) {
+  if (!String(error?.message || error).includes("duplicate column name")) throw error;
+}
+
 const q = {
-  token: db.prepare("SELECT t.user_id,t.client_id,t.scope,t.expires_at,u.email,u.display_name FROM oauth_tokens t JOIN users u ON u.id=t.user_id WHERE t.access_hash=? AND t.revoked_at='' AND t.expires_at>? LIMIT 1"),
+  token: db.prepare("SELECT t.user_id,t.client_id,t.scope,t.resource,t.expires_at,u.email,u.display_name FROM oauth_tokens t JOIN users u ON u.id=t.user_id WHERE t.access_hash=? AND t.revoked_at='' AND t.expires_at>? LIMIT 1"),
   agents: db.prepare("SELECT id,name,platform,version,last_seen,last_status,inventory_json,created_at FROM agents WHERE user_id=? ORDER BY last_seen DESC"),
   ownAgent: db.prepare("SELECT id,name,platform,version,last_seen,last_status,inventory_json,created_at FROM agents WHERE id=? AND user_id=? LIMIT 1"),
   insertCommand: db.prepare("INSERT INTO commands (user_id,agent_id,target,payload_json,status,created_at) VALUES (?,?,'mcp',?,'queued',?)"),
@@ -78,6 +83,7 @@ function tokenContext(req) {
   const hash = digest(match[1]);
   const row = q.token.get(hash, Date.now());
   if (!row) return null;
+  if (String(row.resource || "") !== "https://difsync.com/mcp") return null;
   return {
     token_hash: hash,
     user_id: row.user_id,
