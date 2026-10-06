@@ -4,214 +4,198 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-Add-Type -AssemblyName PresentationFramework
-Add-Type -AssemblyName PresentationCore
-Add-Type -AssemblyName WindowsBase
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
+
+[System.Windows.Forms.Application]::EnableVisualStyles()
 
 $createdNew = $false
 $mutex = New-Object System.Threading.Mutex($true, "Local\DifSyncDeviceDashboard", [ref]$createdNew)
 if (-not $createdNew) {
-  [System.Windows.MessageBox]::Show("DifSync is already open.", "DifSync") | Out-Null
+  [System.Windows.Forms.MessageBox]::Show("DifSync is already open.", "DifSync") | Out-Null
   exit 0
 }
 
 $script:agentProcess = $null
 $script:connected = $false
-$script:allowClose = $false
+$script:realExit = $false
+
 $statePath = Join-Path $env:USERPROFILE ".difsync-agent\config.json"
 $agentPath = Join-Path $InstallDir "agents\device-agent\src\index.js"
+$iconPath = Join-Path $InstallDir "apps\web\public\assets\difsync-icon.png"
 
-[xml]$xaml = @"
-<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="DifSync"
-        Width="520"
-        Height="430"
-        MinWidth="520"
-        MinHeight="430"
-        WindowStartupLocation="CenterScreen"
-        ResizeMode="CanMinimize"
-        Background="#0B0F14"
-        Foreground="#F4F7FA"
-        FontFamily="Segoe UI"
-        ShowInTaskbar="True">
-  <Grid Margin="26">
-    <Grid.RowDefinitions>
-      <RowDefinition Height="Auto"/>
-      <RowDefinition Height="20"/>
-      <RowDefinition Height="Auto"/>
-      <RowDefinition Height="18"/>
-      <RowDefinition Height="Auto"/>
-      <RowDefinition Height="18"/>
-      <RowDefinition Height="Auto"/>
-      <RowDefinition Height="*"/>
-      <RowDefinition Height="Auto"/>
-    </Grid.RowDefinitions>
+function New-Label([string]$text, [int]$x, [int]$y, [int]$w, [int]$h, [float]$size, [System.Drawing.Color]$color, [bool]$bold=$false) {
+  $label = New-Object System.Windows.Forms.Label
+  $label.Text = $text
+  $label.Location = New-Object System.Drawing.Point($x,$y)
+  $label.Size = New-Object System.Drawing.Size($w,$h)
+  $label.ForeColor = $color
+  $label.BackColor = [System.Drawing.Color]::Transparent
+  $label.Font = New-Object System.Drawing.Font("Segoe UI",$size,$(if($bold){[System.Drawing.FontStyle]::Bold}else{[System.Drawing.FontStyle]::Regular}))
+  return $label
+}
 
-    <Grid Grid.Row="0">
-      <Grid.ColumnDefinitions>
-        <ColumnDefinition Width="*"/>
-        <ColumnDefinition Width="Auto"/>
-      </Grid.ColumnDefinitions>
-      <StackPanel>
-        <TextBlock Text="DifSync" FontSize="25" FontWeight="SemiBold"/>
-        <TextBlock Text="Remote Access" Margin="0,4,0,0" Foreground="#8290A3" FontSize="11"/>
-      </StackPanel>
-      <Border Grid.Column="1" VerticalAlignment="Center" Background="#111822" BorderBrush="#202B38" BorderThickness="1" CornerRadius="10" Padding="10,6">
-        <TextBlock x:Name="HostName" Text="" Foreground="#B9C6D5" FontSize="10" FontWeight="SemiBold"/>
-      </Border>
-    </Grid>
+$bg = [System.Drawing.Color]::FromArgb(11,15,20)
+$panel = [System.Drawing.Color]::FromArgb(18,25,34)
+$panel2 = [System.Drawing.Color]::FromArgb(15,21,29)
+$line = [System.Drawing.Color]::FromArgb(32,43,56)
+$text = [System.Drawing.Color]::FromArgb(244,247,250)
+$muted = [System.Drawing.Color]::FromArgb(142,156,175)
+$muted2 = [System.Drawing.Color]::FromArgb(115,128,148)
+$green = [System.Drawing.Color]::FromArgb(143,174,156)
+$red = [System.Drawing.Color]::FromArgb(182,121,121)
 
-    <Border Grid.Row="2" Background="#121922" BorderBrush="#202B38" BorderThickness="1" CornerRadius="16" Padding="18">
-      <Grid>
-        <Grid.ColumnDefinitions>
-          <ColumnDefinition Width="Auto"/>
-          <ColumnDefinition Width="*"/>
-          <ColumnDefinition Width="Auto"/>
-        </Grid.ColumnDefinitions>
-        <Ellipse x:Name="StatusDot" Width="10" Height="10" Fill="#6E7885" VerticalAlignment="Center" Margin="0,0,13,0"/>
-        <StackPanel Grid.Column="1">
-          <TextBlock x:Name="StatusTitle" Text="Connecting" FontSize="16" FontWeight="SemiBold"/>
-          <TextBlock x:Name="StatusDetail" Text="Starting secure device session" Foreground="#8E9CAF" FontSize="10" Margin="0,4,0,0"/>
-        </StackPanel>
-        <Border Grid.Column="2" VerticalAlignment="Center" Background="#0E141C" CornerRadius="999" Padding="9,5">
-          <TextBlock x:Name="AccessBadge" Text="PRIVATE" Foreground="#8FAE9C" FontSize="9" FontWeight="Bold"/>
-        </Border>
-      </Grid>
-    </Border>
+$form = New-Object System.Windows.Forms.Form
+$form.Text = "DifSync"
+$form.ClientSize = New-Object System.Drawing.Size(500,390)
+$form.MinimumSize = New-Object System.Drawing.Size(516,429)
+$form.MaximumSize = New-Object System.Drawing.Size(516,429)
+$form.StartPosition = "CenterScreen"
+$form.BackColor = $bg
+$form.ForeColor = $text
+$form.MaximizeBox = $false
+$form.MinimizeBox = $true
+$form.ShowInTaskbar = $true
 
-    <Border Grid.Row="4" Background="#0F151D" BorderBrush="#1C2632" BorderThickness="1" CornerRadius="14" Padding="16">
-      <Grid>
-        <Grid.RowDefinitions>
-          <RowDefinition Height="Auto"/>
-          <RowDefinition Height="12"/>
-          <RowDefinition Height="Auto"/>
-          <RowDefinition Height="12"/>
-          <RowDefinition Height="Auto"/>
-        </Grid.RowDefinitions>
-        <Grid.ColumnDefinitions>
-          <ColumnDefinition Width="100"/>
-          <ColumnDefinition Width="*"/>
-        </Grid.ColumnDefinitions>
+$script:appIcon = $null
+$script:iconBitmap = $null
+try {
+  if (Test-Path $iconPath) {
+    $script:iconBitmap = New-Object System.Drawing.Bitmap($iconPath)
+    $script:appIcon = [System.Drawing.Icon]::FromHandle($script:iconBitmap.GetHicon())
+    $form.Icon = $script:appIcon
+  }
+} catch {}
 
-        <TextBlock Text="Device" Foreground="#738094" FontSize="10"/>
-        <TextBlock Grid.Column="1" x:Name="DeviceNameText" FontSize="11" FontWeight="SemiBold"/>
+$title = New-Label "DifSync" 28 24 280 36 20 $text $true
+$subtitle = New-Label "Remote Access" 28 61 220 20 9 $muted $false
+$form.Controls.AddRange(@($title,$subtitle))
 
-        <TextBlock Grid.Row="2" Text="Device ID" Foreground="#738094" FontSize="10"/>
-        <TextBlock Grid.Row="2" Grid.Column="1" x:Name="DeviceIdText" FontFamily="Consolas" FontSize="10" Foreground="#D2DAE4" TextTrimming="CharacterEllipsis"/>
+$host = New-Label $env:COMPUTERNAME 350 34 120 22 8 $muted $true
+$host.TextAlign = [System.Drawing.ContentAlignment]::MiddleRight
+$form.Controls.Add($host)
 
-        <TextBlock Grid.Row="4" Text="Access" Foreground="#738094" FontSize="10"/>
-        <TextBlock Grid.Row="4" Grid.Column="1" Text="Reachable only while DifSync is running" FontSize="10" Foreground="#AEB9C7"/>
-      </Grid>
-    </Border>
+$statusPanel = New-Object System.Windows.Forms.Panel
+$statusPanel.Location = New-Object System.Drawing.Point(28,96)
+$statusPanel.Size = New-Object System.Drawing.Size(444,82)
+$statusPanel.BackColor = $panel
+$form.Controls.Add($statusPanel)
 
-    <Grid Grid.Row="6">
-      <Grid.ColumnDefinitions>
-        <ColumnDefinition Width="*"/>
-        <ColumnDefinition Width="12"/>
-        <ColumnDefinition Width="*"/>
-      </Grid.ColumnDefinitions>
-      <Button x:Name="ToggleButton" Grid.Column="0" Height="42" Content="Disconnect"
-              Background="#E8EDF3" Foreground="#10151B" BorderThickness="0"
-              FontSize="11" FontWeight="SemiBold" Cursor="Hand"/>
-      <Button x:Name="WebButton" Grid.Column="2" Height="42" Content="Open web dashboard"
-              Background="#151D27" Foreground="#EAF0F6" BorderBrush="#293545"
-              BorderThickness="1" FontSize="11" FontWeight="SemiBold" Cursor="Hand"/>
-    </Grid>
+$statusDot = New-Object System.Windows.Forms.Panel
+$statusDot.Location = New-Object System.Drawing.Point(18,33)
+$statusDot.Size = New-Object System.Drawing.Size(10,10)
+$statusDot.BackColor = $muted2
+$statusPanel.Controls.Add($statusDot)
 
-    <Grid Grid.Row="8">
-      <Grid.ColumnDefinitions>
-        <ColumnDefinition Width="*"/>
-        <ColumnDefinition Width="Auto"/>
-      </Grid.ColumnDefinitions>
-      <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-        <CheckBox x:Name="TrayCheck" IsChecked="True" VerticalAlignment="Center"/>
-        <TextBlock Text="Minimize to tray" Margin="8,0,0,0" Foreground="#8E9CAF" FontSize="10" VerticalAlignment="Center"/>
-      </StackPanel>
-      <TextBlock Grid.Column="1" Text="Closing DifSync takes this PC offline" Foreground="#667488" FontSize="9" VerticalAlignment="Center"/>
-    </Grid>
-  </Grid>
-</Window>
-"@
+$statusTitle = New-Label "Connecting" 42 18 240 24 12 $text $true
+$statusDetail = New-Label "Starting secure device session" 42 44 280 18 8 $muted $false
+$statusPanel.Controls.AddRange(@($statusTitle,$statusDetail))
 
-$reader = New-Object System.Xml.XmlNodeReader $xaml
-$window = [Windows.Markup.XamlReader]::Load($reader)
+$badge = New-Label "OFFLINE" 340 29 82 24 8 $muted $true
+$badge.TextAlign = [System.Drawing.ContentAlignment]::MiddleCenter
+$statusPanel.Controls.Add($badge)
 
-$statusDot = $window.FindName("StatusDot")
-$statusTitle = $window.FindName("StatusTitle")
-$statusDetail = $window.FindName("StatusDetail")
-$accessBadge = $window.FindName("AccessBadge")
-$hostNameText = $window.FindName("HostName")
-$deviceNameText = $window.FindName("DeviceNameText")
-$deviceIdText = $window.FindName("DeviceIdText")
-$toggleButton = $window.FindName("ToggleButton")
-$webButton = $window.FindName("WebButton")
-$trayCheck = $window.FindName("TrayCheck")
+$infoPanel = New-Object System.Windows.Forms.Panel
+$infoPanel.Location = New-Object System.Drawing.Point(28,194)
+$infoPanel.Size = New-Object System.Drawing.Size(444,105)
+$infoPanel.BackColor = $panel2
+$form.Controls.Add($infoPanel)
 
-$hostNameText.Text = $env:COMPUTERNAME
-$deviceNameText.Text = $DeviceName
+$deviceLbl = New-Label "Device" 16 14 90 18 8 $muted2 $false
+$deviceVal = New-Label $DeviceName 118 14 300 18 9 $text $true
+$idLbl = New-Label "Device ID" 16 44 90 18 8 $muted2 $false
+$idVal = New-Label "Not paired" 118 44 300 18 8 $text $false
+$accessLbl = New-Label "Access" 16 74 90 18 8 $muted2 $false
+$accessVal = New-Label "Reachable only while DifSync is running" 118 74 300 18 8 $muted $false
+$infoPanel.Controls.AddRange(@($deviceLbl,$deviceVal,$idLbl,$idVal,$accessLbl,$accessVal))
 
 try {
   if (Test-Path $statePath) {
     $state = Get-Content $statePath -Raw | ConvertFrom-Json
-    $deviceIdText.Text = [string]$state.agent_id
-  } else {
-    $deviceIdText.Text = "Not paired"
+    $idVal.Text = [string]$state.agent_id
   }
 } catch {
-  $deviceIdText.Text = "Unable to read state"
+  $idVal.Text = "Unable to read state"
 }
 
-[System.Windows.Forms.Application]::EnableVisualStyles()
-$notifyIcon = New-Object System.Windows.Forms.NotifyIcon
-$notifyIcon.Text = "DifSync Remote Access"
+$toggleButton = New-Object System.Windows.Forms.Button
+$toggleButton.Location = New-Object System.Drawing.Point(28,317)
+$toggleButton.Size = New-Object System.Drawing.Size(216,42)
+$toggleButton.Text = "Disconnect"
+$toggleButton.FlatStyle = "Flat"
+$toggleButton.FlatAppearance.BorderSize = 0
+$toggleButton.BackColor = [System.Drawing.Color]::FromArgb(232,237,243)
+$toggleButton.ForeColor = [System.Drawing.Color]::FromArgb(16,21,27)
+$toggleButton.Font = New-Object System.Drawing.Font("Segoe UI",9,[System.Drawing.FontStyle]::Bold)
+$form.Controls.Add($toggleButton)
 
-$iconPath = Join-Path $InstallDir "apps\web\public\assets\difsync-icon.png"
-$script:trayBitmap = $null
-$script:trayIcon = $null
-try {
-  if (Test-Path $iconPath) {
-    $script:trayBitmap = New-Object System.Drawing.Bitmap($iconPath)
-    $script:trayIcon = [System.Drawing.Icon]::FromHandle($script:trayBitmap.GetHicon())
-    $notifyIcon.Icon = $script:trayIcon
+$webButton = New-Object System.Windows.Forms.Button
+$webButton.Location = New-Object System.Drawing.Point(256,317)
+$webButton.Size = New-Object System.Drawing.Size(216,42)
+$webButton.Text = "Open web dashboard"
+$webButton.FlatStyle = "Flat"
+$webButton.FlatAppearance.BorderColor = $line
+$webButton.FlatAppearance.BorderSize = 1
+$webButton.BackColor = [System.Drawing.Color]::FromArgb(21,29,39)
+$webButton.ForeColor = $text
+$webButton.Font = New-Object System.Drawing.Font("Segoe UI",9,[System.Drawing.FontStyle]::Bold)
+$form.Controls.Add($webButton)
+
+$trayCheck = New-Object System.Windows.Forms.CheckBox
+$trayCheck.Location = New-Object System.Drawing.Point(28,366)
+$trayCheck.Size = New-Object System.Drawing.Size(150,20)
+$trayCheck.Text = "Minimize to tray"
+$trayCheck.Checked = $true
+$trayCheck.ForeColor = $muted
+$trayCheck.BackColor = $bg
+$trayCheck.Font = New-Object System.Drawing.Font("Segoe UI",8)
+$form.Controls.Add($trayCheck)
+
+$closeHint = New-Label "Close = PC offline" 330 366 142 18 8 $muted2 $false
+$closeHint.TextAlign = [System.Drawing.ContentAlignment]::MiddleRight
+$form.Controls.Add($closeHint)
+
+$tray = New-Object System.Windows.Forms.NotifyIcon
+$tray.Text = "DifSync Remote Access"
+$tray.Icon = $(if ($script:appIcon) { $script:appIcon } else { [System.Drawing.SystemIcons]::Application })
+$tray.Visible = $false
+
+$menu = New-Object System.Windows.Forms.ContextMenuStrip
+$openItem = $menu.Items.Add("Open DifSync")
+$connectItem = $menu.Items.Add("Disconnect")
+$menu.Items.Add("-") | Out-Null
+$exitItem = $menu.Items.Add("Exit")
+$tray.ContextMenuStrip = $menu
+
+function Set-Status([bool]$online, [string]$detail) {
+  $script:connected = $online
+  if ($online) {
+    $statusDot.BackColor = $green
+    $statusTitle.Text = "Online"
+    $statusDetail.Text = $detail
+    $badge.Text = "ONLINE"
+    $badge.ForeColor = $green
+    $toggleButton.Text = "Disconnect"
+    $connectItem.Text = "Disconnect"
   } else {
-    $notifyIcon.Icon = [System.Drawing.SystemIcons]::Application
+    $statusDot.BackColor = $muted2
+    $statusTitle.Text = "Offline"
+    $statusDetail.Text = $detail
+    $badge.Text = "OFFLINE"
+    $badge.ForeColor = $muted
+    $toggleButton.Text = "Connect"
+    $connectItem.Text = "Connect"
   }
-} catch {
-  $notifyIcon.Icon = [System.Drawing.SystemIcons]::Application
-}
-$notifyIcon.Visible = $false
-
-$trayMenu = New-Object System.Windows.Forms.ContextMenuStrip
-$openItem = $trayMenu.Items.Add("Open DifSync")
-$disconnectItem = $trayMenu.Items.Add("Disconnect")
-$trayMenu.Items.Add("-") | Out-Null
-$exitItem = $trayMenu.Items.Add("Exit")
-$notifyIcon.ContextMenuStrip = $trayMenu
-
-function Set-Status([string]$title, [string]$detail, [string]$color, [bool]$connected) {
-  $statusTitle.Text = $title
-  $statusDetail.Text = $detail
-  $statusDot.Fill = (New-Object Windows.Media.BrushConverter).ConvertFromString($color)
-  $script:connected = $connected
-  $toggleButton.Content = if ($connected) { "Disconnect" } else { "Connect" }
-  $accessBadge.Text = if ($connected) { "ONLINE" } else { "OFFLINE" }
-  $accessBadge.Foreground = (New-Object Windows.Media.BrushConverter).ConvertFromString($(if ($connected) { "#8FAE9C" } else { "#7D8794" }))
-  $disconnectItem.Text = if ($connected) { "Disconnect" } else { "Connect" }
 }
 
 function Start-Agent {
   if ($script:agentProcess -and -not $script:agentProcess.HasExited) { return }
-
   if (-not (Test-Path $agentPath)) {
-    Set-Status "Agent missing" "Reinstall DifSync from difsync.com/devices" "#B67979" $false
+    Set-Status $false "Agent missing. Reinstall from difsync.com/devices."
     return
   }
-
   if (-not (Test-Path $statePath)) {
-    Set-Status "Not paired" "Pair this PC from difsync.com/devices" "#B67979" $false
+    Set-Status $false "This PC is not paired yet."
     return
   }
 
@@ -230,12 +214,12 @@ function Start-Agent {
 
     Start-Sleep -Milliseconds 700
     if ($script:agentProcess.HasExited) {
-      Set-Status "Unable to connect" "The device agent stopped unexpectedly" "#B67979" $false
+      Set-Status $false "The device agent stopped unexpectedly."
     } else {
-      Set-Status "Online" "Connected securely to DifSync" "#8FAE9C" $true
+      Set-Status $true "Connected securely to DifSync"
     }
   } catch {
-    Set-Status "Unable to connect" $_.Exception.Message "#B67979" $false
+    Set-Status $false $_.Exception.Message
   }
 }
 
@@ -247,69 +231,60 @@ function Stop-Agent {
     }
   } catch {}
   $script:agentProcess = $null
-  Set-Status "Offline" "This PC is not reachable remotely" "#6E7885" $false
+  Set-Status $false "This PC is not reachable remotely"
 }
 
 function Restore-Window {
-  $notifyIcon.Visible = $false
-  $window.ShowInTaskbar = $true
-  $window.Show()
-  $window.WindowState = "Normal"
-  $window.Activate()
+  $tray.Visible = $false
+  $form.ShowInTaskbar = $true
+  $form.Show()
+  $form.WindowState = [System.Windows.Forms.FormWindowState]::Normal
+  $form.Activate()
 }
 
 function Send-ToTray {
-  if (-not $trayCheck.IsChecked) { return }
-  $notifyIcon.Visible = $true
-  [System.Windows.Forms.Application]::DoEvents()
-  $window.ShowInTaskbar = $false
-  $window.Hide()
-  $notifyIcon.ShowBalloonTip(1000, "DifSync", "DifSync is still online in the system tray.", [System.Windows.Forms.ToolTipIcon]::Info)
+  $tray.Visible = $true
+  $form.ShowInTaskbar = $false
+  $form.Hide()
 }
 
 $toggleButton.Add_Click({
   if ($script:connected) { Stop-Agent } else { Start-Agent }
 })
-
-$webButton.Add_Click({
-  Start-Process "https://difsync.com/devices"
-})
-
+$webButton.Add_Click({ Start-Process "https://difsync.com/devices" })
 $openItem.Add_Click({ Restore-Window })
-$disconnectItem.Add_Click({
+$connectItem.Add_Click({
   if ($script:connected) { Stop-Agent } else { Start-Agent }
 })
 $exitItem.Add_Click({
-  $script:allowClose = $true
-  $notifyIcon.Visible = $false
-  $window.Close()
+  $script:realExit = $true
+  $form.Close()
 })
-$notifyIcon.Add_DoubleClick({ Restore-Window })
+$tray.Add_DoubleClick({ Restore-Window })
 
-$window.Add_ContentRendered({
-  Start-Agent
-})
-
-$window.Add_StateChanged({
-  if ($window.WindowState -eq "Minimized" -and $trayCheck.IsChecked) {
+$form.Add_Resize({
+  if ($form.WindowState -eq [System.Windows.Forms.FormWindowState]::Minimized -and $trayCheck.Checked) {
     Send-ToTray
   }
 })
 
-$window.Add_Closing({
-  if (-not $script:allowClose) {
+$form.Add_FormClosing({
+  param($sender,$e)
+  if (-not $script:realExit) {
     Stop-Agent
   }
 })
 
+$form.Add_Shown({ Start-Agent })
+
 try {
-  [void]$window.ShowDialog()
+  [System.Windows.Forms.Application]::Run($form)
 } finally {
   Stop-Agent
-  $notifyIcon.Visible = $false
-  $notifyIcon.Dispose()
-  if ($script:trayIcon) { $script:trayIcon.Dispose() }
-  if ($script:trayBitmap) { $script:trayBitmap.Dispose() }
+  $tray.Visible = $false
+  $tray.Dispose()
+  if ($script:appIcon) { $script:appIcon.Dispose() }
+  if ($script:iconBitmap) { $script:iconBitmap.Dispose() }
   if ($mutex) {
     try { $mutex.ReleaseMutex() } catch {}
     $mutex.Dispose()
