@@ -39,7 +39,8 @@ async function api(path, options = {}) {
 }
 
 function route() {
-  const inApp = location.pathname === "/app" || location.pathname.startsWith("/app/") || location.pathname === "/devices";
+  const appRoutes = ["/app", "/sync", "/integrations", "/devices", "/mcp-access", "/account"];
+  const inApp = appRoutes.includes(location.pathname) || location.pathname.startsWith("/app/");
   $("#site-view").classList.toggle("hidden", inApp);
   $("#app-view").classList.toggle("hidden", !inApp);
   if (inApp) initApp();
@@ -80,7 +81,8 @@ async function initApp() {
     state.user = data.user;
     showDashboard();
     await loadDashboard();
-    if (location.pathname === "/devices") setPage("devices", false);
+    const pageByPath = {"/sync":"sync","/integrations":"connectors","/devices":"devices","/mcp-access":"mcp","/account":"account"};
+    setPage(pageByPath[location.pathname] || "overview", false);
   } catch (error) {
     if (error.status !== 401) showToast(error.message, true);
     showAuth();
@@ -303,7 +305,8 @@ document.addEventListener("DOMContentLoaded", () => {
     showAuth();
   });
 
-  $$(".dash-nav").forEach((button) => button.addEventListener("click", () => setPage(button.dataset.page)));
+  $(".dash-nav").forEach((button) => button.addEventListener("click", () => setPage(button.dataset.page)));
+  $("[data-jump]").forEach((button) => button.addEventListener("click", () => setPage(button.dataset.jump)));
 
   $("#refresh-button")?.addEventListener("click", async () => {
     try { await loadDashboard(); showToast("Dashboard refreshed"); }
@@ -348,7 +351,8 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   window.addEventListener("popstate", () => {
-    setPage(location.pathname === "/devices" ? "devices" : "overview", false);
+    const pageByPath = {"/sync":"sync","/integrations":"connectors","/devices":"devices","/mcp-access":"mcp","/account":"account"};
+    setPage(pageByPath[location.pathname] || "overview", false);
   });
 
   $(".modal-close").forEach((button) => button.addEventListener("click", () => $("#" + button.dataset.close)?.close()));
