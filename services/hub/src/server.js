@@ -201,6 +201,15 @@ app.get("/health", (_req, res) => {
   res.json({ ok: true, service: "difsync-hub", version: "0.1.0", time: now() });
 });
 
+app.get("/install/windows.ps1", (_req, res) => {
+  const installer = path.resolve(__dirname, "../../../agents/device-agent/install-windows.ps1");
+  res.set({
+    "Cache-Control": "no-store, no-cache, must-revalidate",
+    "Content-Type": "text/plain; charset=utf-8",
+  });
+  res.sendFile(installer);
+});
+
 app.post("/api/auth/register", authLimit, (req, res) => {
   if (!config.allowRegistration) return res.status(403).json({ ok: false, error: "Registration is disabled" });
   try {
