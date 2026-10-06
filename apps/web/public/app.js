@@ -293,14 +293,22 @@ async function submitConnector(event) {
 }
 
 function setPage(page, updateUrl = true) {
+  const meta = {
+    overview: { title: "Overview", kicker: "Workspace", path: "/app" },
+    sync: { title: "Sync Studio", kicker: "Lighting sync", path: "/sync" },
+    connectors: { title: "Integrations", kicker: "Lighting sync", path: "/integrations" },
+    devices: { title: "Systems", kicker: "Remote access", path: "/devices" },
+    mcp: { title: "ChatGPT access", kicker: "Remote access", path: "/mcp-access" },
+    account: { title: "Settings", kicker: "Account", path: "/account" },
+  };
+  const current = meta[page] || meta.overview;
   $(".dash-nav").forEach((button) => button.classList.toggle("active", button.dataset.page === page));
-  $$(".dash-page").forEach((node) => node.classList.add("hidden"));
+  $(".dash-page").forEach((node) => node.classList.add("hidden"));
   $("#page-" + page)?.classList.remove("hidden");
-  $("#page-title").textContent = page.slice(0, 1).toUpperCase() + page.slice(1);
-  if (updateUrl) {
-    const next = page === "devices" ? "/devices" : "/app";
-    if (location.pathname !== next) history.pushState({ page }, "", next);
-  }
+  $("#page-title").textContent = current.title;
+  $("#page-kicker").textContent = current.kicker;
+  $("#pair-button")?.classList.toggle("hidden", page !== "devices" && page !== "overview");
+  if (updateUrl && location.pathname !== current.path) history.pushState({ page }, "", current.path);
 }
 
 function escapeHtml(value) {
@@ -345,8 +353,8 @@ document.addEventListener("DOMContentLoaded", () => {
     showAuth();
   });
 
-  $(".dash-nav").forEach((button) => button.addEventListener("click", () => setPage(button.dataset.page)));
-  $("[data-jump]").forEach((button) => button.addEventListener("click", () => setPage(button.dataset.jump)));
+  $$(".dash-nav").forEach((button) => button.addEventListener("click", () => setPage(button.dataset.page)));
+  $$("[data-jump]").forEach((button) => button.addEventListener("click", () => setPage(button.dataset.jump)));
 
   $("#refresh-button")?.addEventListener("click", async () => {
     try { await loadDashboard(); showToast("Dashboard refreshed"); }
@@ -360,9 +368,9 @@ document.addEventListener("DOMContentLoaded", () => {
   $("#pair-button")?.addEventListener("click", openPairDialog);
   $("#devices-add-button")?.addEventListener("click", openPairDialog);
 
-  $(".pair-platform").forEach((button) => button.addEventListener("click", () => {
+  $$(".pair-platform").forEach((button) => button.addEventListener("click", () => {
     state.pairPlatform = button.dataset.platform || "windows";
-    $(".pair-platform").forEach((item) => item.classList.toggle("active", item === button));
+    $$(".pair-platform").forEach((item) => item.classList.toggle("active", item === button));
     $("#pair-code-wrap").classList.add("hidden");
   }));
 
@@ -395,7 +403,7 @@ document.addEventListener("DOMContentLoaded", () => {
     setPage(pageByPath[location.pathname] || "overview", false);
   });
 
-  $(".modal-close").forEach((button) => button.addEventListener("click", () => $("#" + button.dataset.close)?.close()));
+  $$(".modal-close").forEach((button) => button.addEventListener("click", () => $("#" + button.dataset.close)?.close()));
   $("#connector-form")?.addEventListener("submit", submitConnector);
 
   const brightness = $("#scene-brightness");
