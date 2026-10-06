@@ -79,7 +79,7 @@ async function heartbeat(state) {
     body: JSON.stringify({
       agent_name: process.env.DIFSYNC_DEVICE_NAME || os.hostname(),
       platform: os.platform() + "-" + os.arch(),
-      version: "0.1.0",
+      version: "0.2.0",
       inventory: inventory()
     })
   });
