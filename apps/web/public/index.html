@@ -244,7 +244,13 @@ browser → hub → local agent</code></pre>
           </section>
 
           <section id="page-devices" class="dash-page hidden">
-            <div class="page-intro"><div><span class="eyebrow">Hardware</span><h2>Paired systems</h2></div><p>A system is a local DifSync agent. Hardware discovery stays on that machine and only its safe inventory is synchronized here.</p></div>
+            <div class="page-intro devices-intro">
+              <div><span class="eyebrow">Hardware</span><h2>Paired systems</h2></div>
+              <div class="devices-intro-actions">
+                <p>A system is a local DifSync agent. Hardware discovery stays on that machine and only its safe inventory is synchronized here.</p>
+                <button id="devices-add-button" class="button button-primary">Add device</button>
+              </div>
+            </div>
             <div id="device-page-list" class="device-page-list"></div>
           </section>
 
@@ -266,13 +272,27 @@ browser → hub → local agent</code></pre>
     </div>
   </div>
 
-  <dialog id="pair-dialog" class="modal">
+  <dialog id="pair-dialog" class="modal pair-modal">
     <button class="modal-close" data-close="pair-dialog" aria-label="Close">×</button>
-    <span class="eyebrow">Pair system</span>
-    <h2>Connect a local agent</h2>
-    <p>Generate a one-time code, then enter it in the DifSync desktop app. The code expires in ten minutes.</p>
-    <button id="generate-pair" class="button button-primary full">Generate pairing code</button>
-    <div id="pair-code-wrap" class="pair-code-wrap hidden"><span>Pairing code</span><b id="pair-code"></b><small id="pair-expiry"></small></div>
+    <span class="eyebrow">Add device</span>
+    <h2>Pair a system with DifSync</h2>
+    <p>Generate a one-time pairing code, then run the installer on the computer you want to connect. The code expires in ten minutes.</p>
+    <div class="pair-platforms" role="tablist" aria-label="Device platform">
+      <button class="pair-platform active" type="button" data-platform="windows">Windows</button>
+      <button class="pair-platform" type="button" data-platform="linux">Linux</button>
+    </div>
+    <button id="generate-pair" class="button button-primary full">Generate pairing setup</button>
+    <div id="pair-code-wrap" class="pair-code-wrap hidden">
+      <span>Pairing code</span>
+      <div class="pair-code-line"><b id="pair-code"></b><button id="copy-pair-code" class="copy-mini" type="button">Copy</button></div>
+      <small id="pair-expiry"></small>
+      <div class="pair-install-block">
+        <span id="pair-install-label">Run in PowerShell</span>
+        <pre id="pair-install-command"></pre>
+        <button id="copy-pair-command" class="button button-quiet full" type="button">Copy install command</button>
+      </div>
+      <p class="pair-note">The agent pairs once, stores its device token locally, then starts automatically when you sign in.</p>
+    </div>
   </dialog>
 
   <dialog id="connector-dialog" class="modal">
