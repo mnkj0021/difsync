@@ -1,5 +1,5 @@
 param(
-  [Parameter(Mandatory=$true)][string]$PairCode,
+  [string]$PairCode = "",
   [string]$InstallDir = "$env:LOCALAPPDATA\DifSync-Agent",
   [string]$DeviceName = $env:COMPUTERNAME,
   [string]$Roots = ""
@@ -18,7 +18,7 @@ if (Test-Path $InstallDir) {
 }
 
 npm install
-$env:DIFSYNC_PAIR_CODE = $PairCode
+if ($PairCode) { $env:DIFSYNC_PAIR_CODE = $PairCode }
 $env:DIFSYNC_DEVICE_NAME = $DeviceName
 if ($Roots) { $env:DIFSYNC_AGENT_ROOTS = $Roots }
 
