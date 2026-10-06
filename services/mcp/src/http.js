@@ -26,6 +26,20 @@ const handlerCache = new Map();
 const db = new Database(DB_FILE, { fileMustExist: true });
 db.pragma("busy_timeout = 5000");
 
+db.exec(`
+CREATE TABLE IF NOT EXISTS oauth_tokens (
+  access_hash TEXT PRIMARY KEY,
+  refresh_hash TEXT NOT NULL UNIQUE,
+  client_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  scope TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  expires_at INTEGER NOT NULL,
+  refresh_expires_at INTEGER NOT NULL,
+  revoked_at TEXT NOT NULL DEFAULT ''
+);
+`);
+
 const q = {
   token: db.prepare("SELECT t.user_id,t.client_id,t.scope,t.expires_at,u.email,u.display_name FROM oauth_tokens t JOIN users u ON u.id=t.user_id WHERE t.access_hash=? AND t.revoked_at='' AND t.expires_at>? LIMIT 1"),
   agents: db.prepare("SELECT id,name,platform,version,last_seen,last_status,inventory_json,created_at FROM agents WHERE user_id=? ORDER BY last_seen DESC"),
