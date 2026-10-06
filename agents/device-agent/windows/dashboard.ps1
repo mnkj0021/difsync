@@ -27,11 +27,11 @@ $iconPath = Join-Path $InstallDir "apps\web\public\assets\difsync-icon.png"
 function New-Label([string]$text, [int]$x, [int]$y, [int]$w, [int]$h, [float]$size, [System.Drawing.Color]$color, [bool]$bold=$false) {
   $label = New-Object System.Windows.Forms.Label
   $label.Text = $text
-  $label.Location = New-Object System.Drawing.Point($x,$y)
-  $label.Size = New-Object System.Drawing.Size($w,$h)
+  $label.Location = New-Object System.Drawing.Point -ArgumentList $x,$y
+  $label.Size = New-Object System.Drawing.Size -ArgumentList $w,$h
   $label.ForeColor = $color
   $label.BackColor = [System.Drawing.Color]::Transparent
-  $label.Font = New-Object System.Drawing.Font("Segoe UI",$size,$(if($bold){[System.Drawing.FontStyle]::Bold}else{[System.Drawing.FontStyle]::Regular}))
+  $fontStyle = if ($bold) { [System.Drawing.FontStyle]::Bold } else { [System.Drawing.FontStyle]::Regular }\n  $label.Font = New-Object System.Drawing.Font -ArgumentList "Segoe UI",$size,$fontStyle
   return $label
 }
 
@@ -47,9 +47,9 @@ $red = [System.Drawing.Color]::FromArgb(182,121,121)
 
 $form = New-Object System.Windows.Forms.Form
 $form.Text = "DifSync"
-$form.ClientSize = New-Object System.Drawing.Size(500,390)
-$form.MinimumSize = New-Object System.Drawing.Size(516,429)
-$form.MaximumSize = New-Object System.Drawing.Size(516,429)
+$form.ClientSize = New-Object System.Drawing.Size -ArgumentList 500,390
+$form.MinimumSize = New-Object System.Drawing.Size -ArgumentList 516,429
+$form.MaximumSize = New-Object System.Drawing.Size -ArgumentList 516,429
 $form.StartPosition = "CenterScreen"
 $form.BackColor = $bg
 $form.ForeColor = $text
@@ -61,7 +61,7 @@ $script:appIcon = $null
 $script:iconBitmap = $null
 try {
   if (Test-Path $iconPath) {
-    $script:iconBitmap = New-Object System.Drawing.Bitmap($iconPath)
+    $script:iconBitmap = New-Object System.Drawing.Bitmap -ArgumentList $iconPath
     $script:appIcon = [System.Drawing.Icon]::FromHandle($script:iconBitmap.GetHicon())
     $form.Icon = $script:appIcon
   }
@@ -76,14 +76,14 @@ $host.TextAlign = [System.Drawing.ContentAlignment]::MiddleRight
 $form.Controls.Add($host)
 
 $statusPanel = New-Object System.Windows.Forms.Panel
-$statusPanel.Location = New-Object System.Drawing.Point(28,96)
-$statusPanel.Size = New-Object System.Drawing.Size(444,82)
+$statusPanel.Location = New-Object System.Drawing.Point -ArgumentList 28,96
+$statusPanel.Size = New-Object System.Drawing.Size -ArgumentList 444,82
 $statusPanel.BackColor = $panel
 $form.Controls.Add($statusPanel)
 
 $statusDot = New-Object System.Windows.Forms.Panel
-$statusDot.Location = New-Object System.Drawing.Point(18,33)
-$statusDot.Size = New-Object System.Drawing.Size(10,10)
+$statusDot.Location = New-Object System.Drawing.Point -ArgumentList 18,33
+$statusDot.Size = New-Object System.Drawing.Size -ArgumentList 10,10
 $statusDot.BackColor = $muted2
 $statusPanel.Controls.Add($statusDot)
 
@@ -96,8 +96,8 @@ $badge.TextAlign = [System.Drawing.ContentAlignment]::MiddleCenter
 $statusPanel.Controls.Add($badge)
 
 $infoPanel = New-Object System.Windows.Forms.Panel
-$infoPanel.Location = New-Object System.Drawing.Point(28,194)
-$infoPanel.Size = New-Object System.Drawing.Size(444,105)
+$infoPanel.Location = New-Object System.Drawing.Point -ArgumentList 28,194
+$infoPanel.Size = New-Object System.Drawing.Size -ArgumentList 444,105
 $infoPanel.BackColor = $panel2
 $form.Controls.Add($infoPanel)
 
@@ -119,36 +119,36 @@ try {
 }
 
 $toggleButton = New-Object System.Windows.Forms.Button
-$toggleButton.Location = New-Object System.Drawing.Point(28,317)
-$toggleButton.Size = New-Object System.Drawing.Size(216,42)
+$toggleButton.Location = New-Object System.Drawing.Point -ArgumentList 28,317
+$toggleButton.Size = New-Object System.Drawing.Size -ArgumentList 216,42
 $toggleButton.Text = "Disconnect"
 $toggleButton.FlatStyle = "Flat"
 $toggleButton.FlatAppearance.BorderSize = 0
 $toggleButton.BackColor = [System.Drawing.Color]::FromArgb(232,237,243)
 $toggleButton.ForeColor = [System.Drawing.Color]::FromArgb(16,21,27)
-$toggleButton.Font = New-Object System.Drawing.Font("Segoe UI",9,[System.Drawing.FontStyle]::Bold)
+$toggleButton.Font = New-Object System.Drawing.Font -ArgumentList "Segoe UI",9,[System.Drawing.FontStyle]::Bold
 $form.Controls.Add($toggleButton)
 
 $webButton = New-Object System.Windows.Forms.Button
-$webButton.Location = New-Object System.Drawing.Point(256,317)
-$webButton.Size = New-Object System.Drawing.Size(216,42)
+$webButton.Location = New-Object System.Drawing.Point -ArgumentList 256,317
+$webButton.Size = New-Object System.Drawing.Size -ArgumentList 216,42
 $webButton.Text = "Open web dashboard"
 $webButton.FlatStyle = "Flat"
 $webButton.FlatAppearance.BorderColor = $line
 $webButton.FlatAppearance.BorderSize = 1
 $webButton.BackColor = [System.Drawing.Color]::FromArgb(21,29,39)
 $webButton.ForeColor = $text
-$webButton.Font = New-Object System.Drawing.Font("Segoe UI",9,[System.Drawing.FontStyle]::Bold)
+$webButton.Font = New-Object System.Drawing.Font -ArgumentList "Segoe UI",9,[System.Drawing.FontStyle]::Bold
 $form.Controls.Add($webButton)
 
 $trayCheck = New-Object System.Windows.Forms.CheckBox
-$trayCheck.Location = New-Object System.Drawing.Point(28,366)
-$trayCheck.Size = New-Object System.Drawing.Size(150,20)
+$trayCheck.Location = New-Object System.Drawing.Point -ArgumentList 28,366
+$trayCheck.Size = New-Object System.Drawing.Size -ArgumentList 150,20
 $trayCheck.Text = "Minimize to tray"
 $trayCheck.Checked = $true
 $trayCheck.ForeColor = $muted
 $trayCheck.BackColor = $bg
-$trayCheck.Font = New-Object System.Drawing.Font("Segoe UI",8)
+$trayCheck.Font = New-Object System.Drawing.Font -ArgumentList "Segoe UI",8
 $form.Controls.Add($trayCheck)
 
 $closeHint = New-Label "Close = PC offline" 330 366 142 18 8 $muted2 $false
