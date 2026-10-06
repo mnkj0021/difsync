@@ -273,15 +273,25 @@ async function onDevice(ctx, deviceId, payload, localFn, timeoutMs) {
 
 function createServer(ctx) {
   const server = new McpServer(
-    { name: "difsync-devices", version: "1.0.0" },
-    { capabilities: { tools: {} } }
+    { name: "difsync-devices", version: "1.0.1" },
+    {
+      capabilities: { tools: {} },
+      instructions: "Use DifSync to inspect and manage the authenticated user's Oracle gateway and paired devices. Prefer read-only tools for inspection; use write and execute tools only when the user requests changes or command execution."
+    }
   );
+
+  const oauth = (scopes) => [{ type: "oauth2", scopes }];
+  const authDescriptor = (scopes) => ({
+    securitySchemes: oauth(scopes),
+    _meta: { securitySchemes: oauth(scopes) }
+  });
 
   server.registerTool("gateway_status", {
     title: "DifSync gateway status",
     description: "Return health and identity information for the authenticated DifSync MCP gateway.",
     inputSchema: z.object({}),
-    annotations: { readOnlyHint: true }
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    ...authDescriptor(["difsync.read"])
   }, async () => {
     requireScope(ctx, "difsync.read");
     return result({ ok: true, service: "difsync-mcp", transport: "streamable-http", user: { email: ctx.email, display_name: ctx.display_name }, gateway: localDevice() });
@@ -301,7 +311,8 @@ function createServer(ctx) {
     title: "Get device status",
     description: "Return current status, platform, capabilities and last-seen information for a DifSync device.",
     inputSchema: z.object({ device_id: z.string().min(1) }),
-    annotations: { readOnlyHint: true }
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    ...authDescriptor(["difsync.read"])
   }, async ({ device_id }) => {
     requireScope(ctx, "difsync.read");
     return result({ device: getDevice(ctx, device_id) });
@@ -311,7 +322,8 @@ function createServer(ctx) {
     title: "Get device inventory",
     description: "Return the inventory and configured filesystem roots for a DifSync device.",
     inputSchema: z.object({ device_id: z.string().min(1) }),
-    annotations: { readOnlyHint: true }
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    ...authDescriptor(["difsync.read"])
   }, async ({ device_id }) => {
     requireScope(ctx, "difsync.read");
     if (device_id === LOCAL_ID) return result({ device: localDevice(), inventory: { hostname: os.hostname(), platform: process.platform, arch: process.arch, release: os.release(), node: process.version, memory_bytes: os.totalmem(), cpus: os.cpus().length, roots: LOCAL_ROOTS } });
@@ -323,7 +335,8 @@ function createServer(ctx) {
     title: "List device directory",
     description: "List files and directories on Oracle or a paired DifSync device.",
     inputSchema: z.object({ device_id: z.string().min(1), path: z.string().min(1), depth: z.number().int().min(0).max(5).optional() }),
-    annotations: { readOnlyHint: true }
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    ...authDescriptor(["difsync.read"])
   }, async ({ device_id, path: dir, depth }) => {
     requireScope(ctx, "difsync.read");
     const value = await onDevice(ctx, device_id, { op: "list_directory", path: dir, depth }, async () => ({ entries: listDirectoryLocal(dir, depth) }));
@@ -334,7 +347,8 @@ function createServer(ctx) {
     title: "Read device file",
     description: "Read UTF-8 file content from Oracle or a paired DifSync device.",
     inputSchema: z.object({ device_id: z.string().min(1), path: z.string().min(1), offset: z.number().int().min(0).optional(), length: z.number().int().min(1).max(250000).optional() }),
-    annotations: { readOnlyHint: true }
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    ...authDescriptor(["difsync.read"])
   }, async ({ device_id, path: file, offset, length }) => {
     requireScope(ctx, "difsync.read");
     const value = await onDevice(ctx, device_id, { op: "read_file", path: file, offset, length }, async () => readFileLocal(file, offset, length));
@@ -345,7 +359,8 @@ function createServer(ctx) {
     title: "Search device files",
     description: "Search paths by filename on Oracle or a paired DifSync device.",
     inputSchema: z.object({ device_id: z.string().min(1), root: z.string().min(1), query: z.string().min(1), max_results: z.number().int().min(1).max(200).optional() }),
-    annotations: { readOnlyHint: true }
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    ...authDescriptor(["difsync.read"])
   }, async ({ device_id, root, query, max_results }) => {
     requireScope(ctx, "difsync.read");
     const value = await onDevice(ctx, device_id, { op: "search_files", root, query, max_results }, async () => ({ matches: searchFilesLocal(root, query, Math.max(1, Math.min(200, Number(max_results) || 100))) }));
@@ -356,7 +371,8 @@ function createServer(ctx) {
     title: "Write device file",
     description: "Create, replace or append a UTF-8 text file on Oracle or a paired DifSync device.",
     inputSchema: z.object({ device_id: z.string().min(1), path: z.string().min(1), content: z.string(), mode: z.enum(["rewrite", "append"]).optional() }),
-    annotations: { readOnlyHint: false, destructiveHint: false }
+    annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+    ...authDescriptor(["difsync.write"])
   }, async ({ device_id, path: file, content, mode }) => {
     requireScope(ctx, "difsync.write");
     const payload = { op: "write_file", path: file, content, mode: mode || "rewrite" };
@@ -375,7 +391,8 @@ function createServer(ctx) {
     title: "Create directory",
     description: "Create a directory, including missing parent directories, on a DifSync device.",
     inputSchema: z.object({ device_id: z.string().min(1), path: z.string().min(1) }),
-    annotations: { readOnlyHint: false, destructiveHint: false }
+    annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+    ...authDescriptor(["difsync.write"])
   }, async ({ device_id, path: dir }) => {
     requireScope(ctx, "difsync.write");
     const value = await onDevice(ctx, device_id, { op: "create_directory", path: dir }, async () => {
@@ -389,7 +406,8 @@ function createServer(ctx) {
     title: "Move or rename path",
     description: "Move or rename a file or directory on a DifSync device.",
     inputSchema: z.object({ device_id: z.string().min(1), source: z.string().min(1), destination: z.string().min(1) }),
-    annotations: { readOnlyHint: false, destructiveHint: true }
+    annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
+    ...authDescriptor(["difsync.write"])
   }, async ({ device_id, source, destination }) => {
     requireScope(ctx, "difsync.write");
     const value = await onDevice(ctx, device_id, { op: "move_path", source, destination }, async () => {
@@ -403,7 +421,8 @@ function createServer(ctx) {
     title: "Delete path",
     description: "Delete a file or directory on a DifSync device. Recursive deletion requires force=true.",
     inputSchema: z.object({ device_id: z.string().min(1), path: z.string().min(1), force: z.boolean().optional() }),
-    annotations: { readOnlyHint: false, destructiveHint: true }
+    annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
+    ...authDescriptor(["difsync.write"])
   }, async ({ device_id, path: targetPath, force }) => {
     requireScope(ctx, "difsync.write");
     const value = await onDevice(ctx, device_id, { op: "delete_path", path: targetPath, force: Boolean(force) }, async () => {
@@ -417,7 +436,8 @@ function createServer(ctx) {
     title: "Run command",
     description: "Run a shell command on Oracle or a paired DifSync device and return its output.",
     inputSchema: z.object({ device_id: z.string().min(1), command: z.string().min(1), cwd: z.string().optional(), timeout_ms: z.number().int().min(500).max(120000).optional() }),
-    annotations: { readOnlyHint: false, destructiveHint: true }
+    annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
+    ...authDescriptor(["difsync.execute"])
   }, async ({ device_id, command, cwd, timeout_ms }) => {
     requireScope(ctx, "difsync.execute");
     const value = await onDevice(ctx, device_id, { op: "run_command", command, cwd, timeout_ms }, async () => runLocalCommand(command, cwd, timeout_ms), timeout_ms || 20000);
@@ -429,7 +449,8 @@ function createServer(ctx) {
     title: "Start process",
     description: "Start a persistent shell process on Oracle or a paired DifSync device.",
     inputSchema: z.object({ device_id: z.string().min(1), command: z.string().min(1), cwd: z.string().optional() }),
-    annotations: { readOnlyHint: false, destructiveHint: true }
+    annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
+    ...authDescriptor(["difsync.execute"])
   }, async ({ device_id, command, cwd }) => {
     requireScope(ctx, "difsync.execute");
     const value = await onDevice(ctx, device_id, { op: "start_process", command, cwd }, async () => {
@@ -443,7 +464,8 @@ function createServer(ctx) {
     title: "Read process output",
     description: "Read current buffered output and exit state from a DifSync-managed process session.",
     inputSchema: z.object({ device_id: z.string().min(1), process_id: z.string().min(1) }),
-    annotations: { readOnlyHint: true }
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    ...authDescriptor(["difsync.read"])
   }, async ({ device_id, process_id }) => {
     requireScope(ctx, "difsync.read");
     const value = await onDevice(ctx, device_id, { op: "read_process_output", process_id }, async () => {
@@ -457,7 +479,8 @@ function createServer(ctx) {
     title: "Send process input",
     description: "Send input to a running DifSync-managed process or interactive shell.",
     inputSchema: z.object({ device_id: z.string().min(1), process_id: z.string().min(1), input: z.string(), newline: z.boolean().optional() }),
-    annotations: { readOnlyHint: false, destructiveHint: true }
+    annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
+    ...authDescriptor(["difsync.execute"])
   }, async ({ device_id, process_id, input, newline }) => {
     requireScope(ctx, "difsync.execute");
     const value = await onDevice(ctx, device_id, { op: "interact_process", process_id, input, newline }, async () => {
@@ -471,7 +494,8 @@ function createServer(ctx) {
     title: "Terminate process",
     description: "Terminate a running DifSync-managed process session.",
     inputSchema: z.object({ device_id: z.string().min(1), process_id: z.string().min(1) }),
-    annotations: { readOnlyHint: false, destructiveHint: true }
+    annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
+    ...authDescriptor(["difsync.execute"])
   }, async ({ device_id, process_id }) => {
     requireScope(ctx, "difsync.execute");
     const value = await onDevice(ctx, device_id, { op: "terminate_process", process_id }, async () => {
@@ -498,7 +522,8 @@ function createServer(ctx) {
     title: "Recent DifSync command history",
     description: "Return recent command status metadata for the authenticated DifSync account.",
     inputSchema: z.object({ limit: z.number().int().min(1).max(100).optional() }),
-    annotations: { readOnlyHint: true }
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    ...authDescriptor(["difsync.read"])
   }, async ({ limit }) => {
     requireScope(ctx, "difsync.read");
     return result({ commands: q.history.all(ctx.user_id, Math.max(1, Math.min(100, Number(limit) || 25))) });
