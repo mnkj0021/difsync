@@ -127,7 +127,7 @@ $agentPath = Join-Path $InstallDir "agents\device-agent\src\index.js"
         <ColumnDefinition Width="Auto"/>
       </Grid.ColumnDefinitions>
       <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-        <CheckBox x:Name="TrayCheck" IsChecked="False" VerticalAlignment="Center"/>
+        <CheckBox x:Name="TrayCheck" IsChecked="True" VerticalAlignment="Center"/>
         <TextBlock Text="Minimize to tray" Margin="8,0,0,0" Foreground="#8E9CAF" FontSize="10" VerticalAlignment="Center"/>
       </StackPanel>
       <TextBlock Grid.Column="1" Text="Closing DifSync takes this PC offline" Foreground="#667488" FontSize="9" VerticalAlignment="Center"/>
@@ -164,9 +164,24 @@ try {
   $deviceIdText.Text = "Unable to read state"
 }
 
+[System.Windows.Forms.Application]::EnableVisualStyles()
 $notifyIcon = New-Object System.Windows.Forms.NotifyIcon
 $notifyIcon.Text = "DifSync Remote Access"
-$notifyIcon.Icon = [System.Drawing.SystemIcons]::Application
+
+$iconPath = Join-Path $InstallDir "apps\web\public\assets\difsync-icon.png"
+$script:trayBitmap = $null
+$script:trayIcon = $null
+try {
+  if (Test-Path $iconPath) {
+    $script:trayBitmap = New-Object System.Drawing.Bitmap($iconPath)
+    $script:trayIcon = [System.Drawing.Icon]::FromHandle($script:trayBitmap.GetHicon())
+    $notifyIcon.Icon = $script:trayIcon
+  } else {
+    $notifyIcon.Icon = [System.Drawing.SystemIcons]::Application
+  }
+} catch {
+  $notifyIcon.Icon = [System.Drawing.SystemIcons]::Application
+}
 $notifyIcon.Visible = $false
 
 $trayMenu = New-Object System.Windows.Forms.ContextMenuStrip
@@ -237,9 +252,19 @@ function Stop-Agent {
 
 function Restore-Window {
   $notifyIcon.Visible = $false
+  $window.ShowInTaskbar = $true
   $window.Show()
   $window.WindowState = "Normal"
   $window.Activate()
+}
+
+function Send-ToTray {
+  if (-not $trayCheck.IsChecked) { return }
+  $notifyIcon.Visible = $true
+  [System.Windows.Forms.Application]::DoEvents()
+  $window.ShowInTaskbar = $false
+  $window.Hide()
+  $notifyIcon.ShowBalloonTip(1000, "DifSync", "DifSync is still online in the system tray.", [System.Windows.Forms.ToolTipIcon]::Info)
 }
 
 $toggleButton.Add_Click({
@@ -267,9 +292,7 @@ $window.Add_ContentRendered({
 
 $window.Add_StateChanged({
   if ($window.WindowState -eq "Minimized" -and $trayCheck.IsChecked) {
-    $window.Hide()
-    $notifyIcon.Visible = $true
-    $notifyIcon.ShowBalloonTip(1200, "DifSync", "Still online in the system tray.", [System.Windows.Forms.ToolTipIcon]::Info)
+    Send-ToTray
   }
 })
 
@@ -285,6 +308,8 @@ try {
   Stop-Agent
   $notifyIcon.Visible = $false
   $notifyIcon.Dispose()
+  if ($script:trayIcon) { $script:trayIcon.Dispose() }
+  if ($script:trayBitmap) { $script:trayBitmap.Dispose() }
   if ($mutex) {
     try { $mutex.ReleaseMutex() } catch {}
     $mutex.Dispose()
