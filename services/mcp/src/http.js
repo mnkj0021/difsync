@@ -2,6 +2,8 @@ import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
+import crypto from "node:crypto";
+import { spawn } from "node:child_process";
 import Database from "better-sqlite3";
 import { createMcpHandler, McpServer } from "@modelcontextprotocol/server";
 import { toNodeHandler } from "@modelcontextprotocol/node";
@@ -11,41 +13,35 @@ const HOST = String(process.env.DIFSYNC_MCP_HTTP_HOST || "127.0.0.1");
 const PORT = Number(process.env.DIFSYNC_MCP_HTTP_PORT || 8891);
 const ROOT = path.resolve(process.env.DIFSYNC_ROOT || "/home/opc/projects/difsync");
 const DB_FILE = path.resolve(process.env.DIFSYNC_DB_FILE || path.join(ROOT, "services/hub/var/difsync.sqlite"));
-const OWNER_EMAIL = String(process.env.DIFSYNC_MCP_USER_EMAIL || "").trim().toLowerCase();
 const LOCAL_ID = String(process.env.DIFSYNC_MCP_LOCAL_DEVICE_ID || "oracle-vps").trim();
-const OUTPUT_LIMIT = Math.max(4096, Number(process.env.DIFSYNC_MCP_OUTPUT_LIMIT || 120000));
-const READ_ROOTS = String(process.env.DIFSYNC_MCP_READ_ROOTS || ROOT)
+const OUTPUT_LIMIT = Math.max(20000, Number(process.env.DIFSYNC_MCP_OUTPUT_LIMIT || 250000));
+const LOCAL_ROOTS = String(process.env.DIFSYNC_MCP_ROOTS || "/home/opc")
   .split(path.delimiter)
-  .map((value) => value.trim())
+  .map((x) => x.trim())
   .filter(Boolean)
-  .map((value) => path.resolve(value));
-
-const SENSITIVE_NAMES = new Set([
-  ".env",
-  ".env.local",
-  ".env.production",
-  ".env.development",
-  "id_rsa",
-  "id_ed25519",
-  "authorized_keys",
-  "known_hosts"
-]);
+  .map((x) => path.resolve(x));
+const sessions = new Map();
+const handlerCache = new Map();
 
 const db = new Database(DB_FILE, { fileMustExist: true });
 db.pragma("busy_timeout = 5000");
 
-const queries = {
-  users: db.prepare("SELECT id,email,display_name FROM users ORDER BY created_at ASC"),
-  userByEmail: db.prepare("SELECT id,email,display_name FROM users WHERE lower(email)=? LIMIT 1"),
+const q = {
+  token: db.prepare("SELECT t.user_id,t.client_id,t.scope,t.expires_at,u.email,u.display_name FROM oauth_tokens t JOIN users u ON u.id=t.user_id WHERE t.access_hash=? AND t.revoked_at='' AND t.expires_at>? LIMIT 1"),
   agents: db.prepare("SELECT id,name,platform,version,last_seen,last_status,inventory_json,created_at FROM agents WHERE user_id=? ORDER BY last_seen DESC"),
   ownAgent: db.prepare("SELECT id,name,platform,version,last_seen,last_status,inventory_json,created_at FROM agents WHERE id=? AND user_id=? LIMIT 1"),
-  commands: db.prepare("SELECT id,agent_id,target,status,created_at,dispatched_at,executed_at,message FROM commands WHERE user_id=? ORDER BY id DESC LIMIT ?")
+  insertCommand: db.prepare("INSERT INTO commands (user_id,agent_id,target,payload_json,status,created_at) VALUES (?,?,'mcp',?,'queued',?)"),
+  command: db.prepare("SELECT id,user_id,agent_id,target,status,created_at,dispatched_at,executed_at,message,result_json FROM commands WHERE id=? AND user_id=? LIMIT 1"),
+  history: db.prepare("SELECT id,agent_id,target,status,created_at,dispatched_at,executed_at,message FROM commands WHERE user_id=? ORDER BY id DESC LIMIT ?"),
+  audit: db.prepare("INSERT INTO audit_log (user_id,action,resource_type,resource_id,ip,created_at,details_json) VALUES (?,?,?,?,?,?,?)")
 };
 
-function result(value) {
-  return {
-    content: [{ type: "text", text: typeof value === "string" ? value : JSON.stringify(value, null, 2) }]
-  };
+function now() {
+  return new Date().toISOString();
+}
+
+function digest(value) {
+  return crypto.createHash("sha256").update(String(value || ""), "utf8").digest("hex");
 }
 
 function safeJson(raw, fallback = {}) {
@@ -57,17 +53,35 @@ function safeJson(raw, fallback = {}) {
   }
 }
 
-function owner() {
-  if (OWNER_EMAIL) {
-    const row = queries.userByEmail.get(OWNER_EMAIL);
-    if (!row) throw new Error("DIFSYNC_MCP_USER_EMAIL does not match a DifSync account");
-    return row;
-  }
+function result(value) {
+  return { content: [{ type: "text", text: typeof value === "string" ? value : JSON.stringify(value, null, 2) }] };
+}
 
-  const rows = queries.users.all();
-  if (rows.length === 1) return rows[0];
-  if (rows.length === 0) throw new Error("No DifSync account exists yet");
-  throw new Error("Multiple DifSync accounts exist. Set DIFSYNC_MCP_USER_EMAIL explicitly.");
+function tokenContext(req) {
+  const auth = String(req.headers.authorization || "");
+  const match = auth.match(/^Bearer\s+(.+)$/i);
+  if (!match) return null;
+  const hash = digest(match[1]);
+  const row = q.token.get(hash, Date.now());
+  if (!row) return null;
+  return {
+    token_hash: hash,
+    user_id: row.user_id,
+    client_id: row.client_id,
+    scope: String(row.scope || "").split(/\s+/).filter(Boolean),
+    email: row.email,
+    display_name: row.display_name
+  };
+}
+
+function requireScope(ctx, scope) {
+  if (!ctx.scope.includes(scope)) throw new Error("OAuth scope required: " + scope);
+}
+
+function audit(ctx, action, resourceType = "", resourceId = "", details = {}) {
+  try {
+    q.audit.run(ctx.user_id, action, resourceType, resourceId, "mcp", now(), JSON.stringify(details || {}));
+  } catch {}
 }
 
 function online(lastSeen) {
@@ -85,9 +99,11 @@ function localDevice() {
     local_gateway: true,
     capabilities: [
       "gateway.status",
-      "filesystem.read.scoped",
-      "inventory.safe",
-      "command.history"
+      "filesystem.read",
+      "filesystem.write",
+      "filesystem.search",
+      "process.run",
+      "process.session"
     ]
   };
 }
@@ -108,283 +124,397 @@ function publicAgent(row) {
   };
 }
 
-function isSensitive(target) {
-  const parts = target.split(path.sep).filter(Boolean);
-  if (parts.some((part) => part.startsWith(".") && part !== "." && part !== "..")) return true;
-  const base = path.basename(target).toLowerCase();
-  if (SENSITIVE_NAMES.has(base)) return true;
-  if (/(secret|credential|token|private[-_]?key|\.pem$|\.key$|\.p12$|\.pfx$)/i.test(base)) return true;
-  return false;
+function getDevice(ctx, deviceId) {
+  if (deviceId === LOCAL_ID) return localDevice();
+  const row = q.ownAgent.get(deviceId, ctx.user_id);
+  if (!row) throw new Error("Unknown or unowned device");
+  return publicAgent(row);
 }
 
-function ensureReadable(input) {
+function localPath(input) {
   const target = path.resolve(String(input || ""));
-  const allowed = READ_ROOTS.some((root) => target === root || target.startsWith(root + path.sep));
-  if (!allowed) throw new Error("Path is outside configured read roots");
-  if (isSensitive(target)) throw new Error("Sensitive or hidden paths are not exposed by this connector");
-
-  let real = target;
-  try {
-    real = fs.realpathSync(target);
-  } catch {}
-  const realAllowed = READ_ROOTS.some((root) => real === root || real.startsWith(root + path.sep));
-  if (!realAllowed) throw new Error("Resolved path is outside configured read roots");
-  if (isSensitive(real)) throw new Error("Sensitive or hidden paths are not exposed by this connector");
-  return real;
+  const allowed = LOCAL_ROOTS.some((root) => target === root || target.startsWith(root + path.sep));
+  if (!allowed) throw new Error("Path is outside configured Oracle roots");
+  return target;
 }
 
-function readUtf8(file, offset = 0, length = 65536) {
-  const target = ensureReadable(file);
+function readFileLocal(input, offset = 0, length = 65536) {
+  const target = localPath(input);
   const stat = fs.statSync(target);
   if (!stat.isFile()) throw new Error("Not a file");
   const start = Math.max(0, Number(offset) || 0);
-  const requested = Math.max(1, Math.min(Number(length) || 65536, OUTPUT_LIMIT));
-  const remaining = Math.max(0, stat.size - start);
-  const buffer = Buffer.alloc(Math.min(requested, remaining));
+  const wanted = Math.max(1, Math.min(Number(length) || 65536, OUTPUT_LIMIT));
+  const bytes = Math.max(0, Math.min(wanted, stat.size - start));
+  const buffer = Buffer.alloc(bytes);
   const fd = fs.openSync(target, "r");
   try {
-    const bytes = fs.readSync(fd, buffer, 0, buffer.length, start);
-    return {
-      path: target,
-      size: stat.size,
-      offset: start,
-      bytes,
-      content: buffer.subarray(0, bytes).toString("utf8")
-    };
+    const count = fs.readSync(fd, buffer, 0, bytes, start);
+    return { path: target, size: stat.size, offset: start, bytes: count, content: buffer.subarray(0, count).toString("utf8") };
   } finally {
     fs.closeSync(fd);
   }
 }
 
-function listDir(dir, depth = 1) {
-  const root = ensureReadable(dir);
-  const maxDepth = Math.max(0, Math.min(3, Number(depth) || 1));
+function listDirectoryLocal(input, depth = 1) {
+  const root = localPath(input);
+  const maxDepth = Math.max(0, Math.min(5, Number(depth) || 1));
   const entries = [];
-
-  function walk(current, level) {
-    for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
-      const full = path.join(current, entry.name);
-      if (isSensitive(full)) continue;
+  function walk(dir, level) {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
       let size = null;
-      try {
-        size = fs.statSync(full).size;
-      } catch {}
-      entries.push({
-        path: full,
-        name: entry.name,
-        type: entry.isDirectory() ? "directory" : entry.isFile() ? "file" : "other",
-        size
-      });
-      if (entries.length >= 800) return;
-      if (entry.isDirectory() && level < maxDepth) walk(full, level + 1);
-      if (entries.length >= 800) return;
+      try { size = fs.statSync(full).size; } catch {}
+      entries.push({ path: full, name: entry.name, type: entry.isDirectory() ? "directory" : entry.isFile() ? "file" : "other", size });
+      if (entries.length >= 1500) return;
+      if (entry.isDirectory() && level < maxDepth) {
+        try { walk(full, level + 1); } catch {}
+      }
+      if (entries.length >= 1500) return;
     }
   }
-
   walk(root, 0);
   return entries;
 }
 
-function searchFiles(rootInput, query, maxResults = 50) {
-  const root = ensureReadable(rootInput);
-  const needle = String(query || "").trim().toLowerCase();
-  if (!needle) throw new Error("query is required");
-  const limit = Math.max(1, Math.min(100, Number(maxResults) || 50));
-  const results = [];
-
-  function walk(current) {
-    for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
-      if (results.length >= limit) return;
-      const full = path.join(current, entry.name);
-      if (isSensitive(full)) continue;
-      if (entry.isDirectory()) {
-        walk(full);
-        continue;
-      }
-      if (!entry.isFile()) continue;
+function searchFilesLocal(input, query, maxResults = 100) {
+  const root = localPath(input);
+  const needle = String(query || "").toLowerCase();
+  const out = [];
+  function walk(dir) {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (out.length >= maxResults) return;
+      const full = path.join(dir, entry.name);
       if (entry.name.toLowerCase().includes(needle) || full.toLowerCase().includes(needle)) {
-        results.push({ path: full, name: entry.name });
+        out.push({ path: full, name: entry.name, type: entry.isDirectory() ? "directory" : "file" });
+      }
+      if (entry.isDirectory()) {
+        try { walk(full); } catch {}
       }
     }
   }
-
   walk(root);
-  return results;
+  return out;
 }
 
-function getDevice(deviceId) {
-  if (deviceId === LOCAL_ID) return localDevice();
-  const user = owner();
-  const row = queries.ownAgent.get(deviceId, user.id);
-  if (!row) throw new Error("Unknown or unowned device");
-  return publicAgent(row);
+function spawnLocal(command, cwd) {
+  const working = localPath(cwd || "/home/opc");
+  const child = spawn("/bin/bash", ["-lc", String(command)], { cwd: working, stdio: ["pipe", "pipe", "pipe"] });
+  const id = "local_" + crypto.randomUUID().replace(/-/g, "").slice(0, 16);
+  const session = { id, child, command: String(command), cwd: working, output: "", started_at: now(), exited: false, exit_code: null };
+  const append = (buf) => {
+    session.output += String(buf);
+    if (session.output.length > OUTPUT_LIMIT) session.output = session.output.slice(-OUTPUT_LIMIT);
+  };
+  child.stdout.on("data", append);
+  child.stderr.on("data", append);
+  child.on("exit", (code) => { session.exited = true; session.exit_code = code; });
+  sessions.set(id, session);
+  return session;
 }
 
-function createServer() {
+async function runLocalCommand(command, cwd, timeoutMs = 15000) {
+  const s = spawnLocal(command, cwd);
+  const timeout = Math.max(500, Math.min(Number(timeoutMs) || 15000, 120000));
+  const start = Date.now();
+  while (!s.exited && Date.now() - start < timeout) {
+    await new Promise((r) => setTimeout(r, 60));
+  }
+  if (!s.exited) {
+    try { s.child.kill(); } catch {}
+    throw new Error("Command timed out after " + timeout + " ms");
+  }
+  const out = { command: s.command, cwd: s.cwd, exit_code: s.exit_code, output: s.output };
+  sessions.delete(s.id);
+  return out;
+}
+
+async function remoteCommand(ctx, deviceId, payload, timeoutMs = 20000) {
+  const agent = q.ownAgent.get(deviceId, ctx.user_id);
+  if (!agent) throw new Error("Unknown or unowned device");
+  if (!online(agent.last_seen)) throw new Error("Device is offline");
+  const info = q.insertCommand.run(ctx.user_id, deviceId, JSON.stringify(payload || {}), now());
+  const commandId = Number(info.lastInsertRowid);
+  audit(ctx, "mcp.command.queue", "agent", deviceId, { command_id: commandId, op: payload.op });
+  const deadline = Date.now() + Math.max(3000, Math.min(Number(timeoutMs) || 20000, 120000));
+  while (Date.now() < deadline) {
+    const row = q.command.get(commandId, ctx.user_id);
+    if (!row) throw new Error("Remote command disappeared");
+    if (row.status === "done") return safeJson(row.result_json, {});
+    if (row.status === "failed") throw new Error(row.message || "Remote command failed");
+    await new Promise((r) => setTimeout(r, 250));
+  }
+  return { command_id: commandId, status: "pending", message: "Device has not returned a result yet" };
+}
+
+async function onDevice(ctx, deviceId, payload, localFn, timeoutMs) {
+  if (deviceId === LOCAL_ID) return await localFn();
+  return await remoteCommand(ctx, deviceId, payload, timeoutMs);
+}
+
+function createServer(ctx) {
   const server = new McpServer(
-    { name: "difsync-devices", version: "0.3.0" },
+    { name: "difsync-devices", version: "1.0.0" },
     { capabilities: { tools: {} } }
   );
 
-  server.registerTool(
-    "gateway_status",
-    {
-      title: "DifSync gateway status",
-      description: "Return basic health information for the DifSync Oracle MCP gateway.",
-      inputSchema: z.object({}),
-      annotations: { readOnlyHint: true }
-    },
-    async () => result({
-      ok: true,
-      service: "difsync-mcp",
-      transport: "streamable-http",
-      gateway: localDevice()
-    })
-  );
+  server.registerTool("gateway_status", {
+    title: "DifSync gateway status",
+    description: "Return health and identity information for the authenticated DifSync MCP gateway.",
+    inputSchema: z.object({}),
+    annotations: { readOnlyHint: true }
+  }, async () => {
+    requireScope(ctx, "difsync.read");
+    return result({ ok: true, service: "difsync-mcp", transport: "streamable-http", user: { email: ctx.email, display_name: ctx.display_name }, gateway: localDevice() });
+  });
 
-  server.registerTool(
-    "devices_list",
-    {
-      title: "List DifSync devices",
-      description: "List the Oracle gateway and paired DifSync agents with current online status and capability names.",
-      inputSchema: z.object({}),
-      annotations: { readOnlyHint: true }
-    },
-    async () => {
-      const user = owner();
-      return result({ devices: [localDevice(), ...queries.agents.all(user.id).map(publicAgent)] });
-    }
-  );
+  server.registerTool("devices_list", {
+    title: "List DifSync devices",
+    description: "List Oracle and all paired devices owned by the authenticated DifSync account.",
+    inputSchema: z.object({}),
+    annotations: { readOnlyHint: true }
+  }, async () => {
+    requireScope(ctx, "difsync.read");
+    return result({ devices: [localDevice(), ...q.agents.all(ctx.user_id).map(publicAgent)] });
+  });
 
-  server.registerTool(
-    "device_status",
-    {
-      title: "Get DifSync device status",
-      description: "Return current online state, platform, safe capabilities and last-seen data for one DifSync device.",
-      inputSchema: z.object({ device_id: z.string().min(1) }),
-      annotations: { readOnlyHint: true }
-    },
-    async ({ device_id }) => result({ device: getDevice(device_id) })
-  );
+  server.registerTool("device_status", {
+    title: "Get device status",
+    description: "Return current status, platform, capabilities and last-seen information for a DifSync device.",
+    inputSchema: z.object({ device_id: z.string().min(1) }),
+    annotations: { readOnlyHint: true }
+  }, async ({ device_id }) => {
+    requireScope(ctx, "difsync.read");
+    return result({ device: getDevice(ctx, device_id) });
+  });
 
-  server.registerTool(
-    "device_inventory",
-    {
-      title: "Get DifSync device inventory",
-      description: "Return the safe inventory snapshot for one paired device or the configured Oracle read roots.",
-      inputSchema: z.object({ device_id: z.string().min(1) }),
-      annotations: { readOnlyHint: true }
-    },
-    async ({ device_id }) => {
-      if (device_id === LOCAL_ID) {
-        return result({
-          device: localDevice(),
-          inventory: {
-            hostname: os.hostname(),
-            platform: process.platform,
-            arch: process.arch,
-            release: os.release(),
-            node: process.version,
-            memory_bytes: os.totalmem(),
-            cpus: os.cpus().length,
-            read_roots: READ_ROOTS
-          }
-        });
-      }
-      const device = getDevice(device_id);
-      return result({ device, inventory: device.inventory || {} });
-    }
-  );
+  server.registerTool("device_inventory", {
+    title: "Get device inventory",
+    description: "Return the inventory and configured filesystem roots for a DifSync device.",
+    inputSchema: z.object({ device_id: z.string().min(1) }),
+    annotations: { readOnlyHint: true }
+  }, async ({ device_id }) => {
+    requireScope(ctx, "difsync.read");
+    if (device_id === LOCAL_ID) return result({ device: localDevice(), inventory: { hostname: os.hostname(), platform: process.platform, arch: process.arch, release: os.release(), node: process.version, memory_bytes: os.totalmem(), cpus: os.cpus().length, roots: LOCAL_ROOTS } });
+    const device = getDevice(ctx, device_id);
+    return result({ device, inventory: device.inventory || {} });
+  });
 
-  server.registerTool(
-    "list_directory",
-    {
-      title: "List Oracle directory",
-      description: "List files and directories under the configured DifSync read roots on Oracle. Hidden and sensitive paths are excluded.",
-      inputSchema: z.object({
-        device_id: z.string().min(1),
-        path: z.string().min(1),
-        depth: z.number().int().min(0).max(3).optional()
-      }),
-      annotations: { readOnlyHint: true }
-    },
-    async ({ device_id, path: dir, depth }) => {
-      if (device_id !== LOCAL_ID) throw new Error("Remote filesystem reads are not enabled yet");
-      return result({ entries: listDir(dir, depth) });
-    }
-  );
+  server.registerTool("list_directory", {
+    title: "List device directory",
+    description: "List files and directories on Oracle or a paired DifSync device.",
+    inputSchema: z.object({ device_id: z.string().min(1), path: z.string().min(1), depth: z.number().int().min(0).max(5).optional() }),
+    annotations: { readOnlyHint: true }
+  }, async ({ device_id, path: dir, depth }) => {
+    requireScope(ctx, "difsync.read");
+    const value = await onDevice(ctx, device_id, { op: "list_directory", path: dir, depth }, async () => ({ entries: listDirectoryLocal(dir, depth) }));
+    return result(value);
+  });
 
-  server.registerTool(
-    "read_file",
-    {
-      title: "Read Oracle text file",
-      description: "Read UTF-8 text under the configured DifSync read roots on Oracle. Hidden and sensitive paths are blocked.",
-      inputSchema: z.object({
-        device_id: z.string().min(1),
-        path: z.string().min(1),
-        offset: z.number().int().min(0).optional(),
-        length: z.number().int().min(1).max(120000).optional()
-      }),
-      annotations: { readOnlyHint: true }
-    },
-    async ({ device_id, path: file, offset, length }) => {
-      if (device_id !== LOCAL_ID) throw new Error("Remote filesystem reads are not enabled yet");
-      return result(readUtf8(file, offset, length));
-    }
-  );
+  server.registerTool("read_file", {
+    title: "Read device file",
+    description: "Read UTF-8 file content from Oracle or a paired DifSync device.",
+    inputSchema: z.object({ device_id: z.string().min(1), path: z.string().min(1), offset: z.number().int().min(0).optional(), length: z.number().int().min(1).max(250000).optional() }),
+    annotations: { readOnlyHint: true }
+  }, async ({ device_id, path: file, offset, length }) => {
+    requireScope(ctx, "difsync.read");
+    const value = await onDevice(ctx, device_id, { op: "read_file", path: file, offset, length }, async () => readFileLocal(file, offset, length));
+    return result(value);
+  });
 
-  server.registerTool(
-    "search_files",
-    {
-      title: "Search Oracle filenames",
-      description: "Search filenames under the configured DifSync read roots on Oracle without reading file contents.",
-      inputSchema: z.object({
-        device_id: z.string().min(1),
-        root: z.string().min(1),
-        query: z.string().min(1),
-        max_results: z.number().int().min(1).max(100).optional()
-      }),
-      annotations: { readOnlyHint: true }
-    },
-    async ({ device_id, root, query, max_results }) => {
-      if (device_id !== LOCAL_ID) throw new Error("Remote filesystem search is not enabled yet");
-      return result({ matches: searchFiles(root, query, max_results) });
-    }
-  );
+  server.registerTool("search_files", {
+    title: "Search device files",
+    description: "Search paths by filename on Oracle or a paired DifSync device.",
+    inputSchema: z.object({ device_id: z.string().min(1), root: z.string().min(1), query: z.string().min(1), max_results: z.number().int().min(1).max(200).optional() }),
+    annotations: { readOnlyHint: true }
+  }, async ({ device_id, root, query, max_results }) => {
+    requireScope(ctx, "difsync.read");
+    const value = await onDevice(ctx, device_id, { op: "search_files", root, query, max_results }, async () => ({ matches: searchFilesLocal(root, query, Math.max(1, Math.min(200, Number(max_results) || 100))) }));
+    return result(value);
+  });
 
-  server.registerTool(
-    "command_history",
-    {
-      title: "Recent DifSync command history",
-      description: "Return recent queued/dispatched/completed command metadata for the configured DifSync account. Results do not include command payloads.",
-      inputSchema: z.object({
-        limit: z.number().int().min(1).max(100).optional()
-      }),
-      annotations: { readOnlyHint: true }
-    },
-    async ({ limit }) => {
-      const user = owner();
-      const rows = queries.commands.all(user.id, Math.max(1, Math.min(100, Number(limit) || 25)));
-      return result({ commands: rows });
-    }
-  );
+  server.registerTool("write_file", {
+    title: "Write device file",
+    description: "Create, replace or append a UTF-8 text file on Oracle or a paired DifSync device.",
+    inputSchema: z.object({ device_id: z.string().min(1), path: z.string().min(1), content: z.string(), mode: z.enum(["rewrite", "append"]).optional() }),
+    annotations: { readOnlyHint: false, destructiveHint: false }
+  }, async ({ device_id, path: file, content, mode }) => {
+    requireScope(ctx, "difsync.write");
+    const payload = { op: "write_file", path: file, content, mode: mode || "rewrite" };
+    const value = await onDevice(ctx, device_id, payload, async () => {
+      const target = localPath(file);
+      fs.mkdirSync(path.dirname(target), { recursive: true });
+      if (mode === "append") fs.appendFileSync(target, content, "utf8");
+      else fs.writeFileSync(target, content, "utf8");
+      return { path: target, bytes: Buffer.byteLength(content, "utf8") };
+    });
+    audit(ctx, "mcp.file.write", "device", device_id, { path: file, mode: mode || "rewrite" });
+    return result(value);
+  });
+
+  server.registerTool("create_directory", {
+    title: "Create directory",
+    description: "Create a directory, including missing parent directories, on a DifSync device.",
+    inputSchema: z.object({ device_id: z.string().min(1), path: z.string().min(1) }),
+    annotations: { readOnlyHint: false, destructiveHint: false }
+  }, async ({ device_id, path: dir }) => {
+    requireScope(ctx, "difsync.write");
+    const value = await onDevice(ctx, device_id, { op: "create_directory", path: dir }, async () => {
+      const target = localPath(dir); fs.mkdirSync(target, { recursive: true }); return { path: target };
+    });
+    audit(ctx, "mcp.directory.create", "device", device_id, { path: dir });
+    return result(value);
+  });
+
+  server.registerTool("move_path", {
+    title: "Move or rename path",
+    description: "Move or rename a file or directory on a DifSync device.",
+    inputSchema: z.object({ device_id: z.string().min(1), source: z.string().min(1), destination: z.string().min(1) }),
+    annotations: { readOnlyHint: false, destructiveHint: true }
+  }, async ({ device_id, source, destination }) => {
+    requireScope(ctx, "difsync.write");
+    const value = await onDevice(ctx, device_id, { op: "move_path", source, destination }, async () => {
+      const src = localPath(source), dst = localPath(destination); fs.mkdirSync(path.dirname(dst), { recursive: true }); fs.renameSync(src, dst); return { source: src, destination: dst };
+    });
+    audit(ctx, "mcp.path.move", "device", device_id, { source, destination });
+    return result(value);
+  });
+
+  server.registerTool("delete_path", {
+    title: "Delete path",
+    description: "Delete a file or directory on a DifSync device. Recursive deletion requires force=true.",
+    inputSchema: z.object({ device_id: z.string().min(1), path: z.string().min(1), force: z.boolean().optional() }),
+    annotations: { readOnlyHint: false, destructiveHint: true }
+  }, async ({ device_id, path: targetPath, force }) => {
+    requireScope(ctx, "difsync.write");
+    const value = await onDevice(ctx, device_id, { op: "delete_path", path: targetPath, force: Boolean(force) }, async () => {
+      const target = localPath(targetPath); fs.rmSync(target, { recursive: true, force: Boolean(force) }); return { path: target, deleted: true };
+    });
+    audit(ctx, "mcp.path.delete", "device", device_id, { path: targetPath, force: Boolean(force) });
+    return result(value);
+  });
+
+  server.registerTool("run_command", {
+    title: "Run command",
+    description: "Run a shell command on Oracle or a paired DifSync device and return its output.",
+    inputSchema: z.object({ device_id: z.string().min(1), command: z.string().min(1), cwd: z.string().optional(), timeout_ms: z.number().int().min(500).max(120000).optional() }),
+    annotations: { readOnlyHint: false, destructiveHint: true }
+  }, async ({ device_id, command, cwd, timeout_ms }) => {
+    requireScope(ctx, "difsync.execute");
+    const value = await onDevice(ctx, device_id, { op: "run_command", command, cwd, timeout_ms }, async () => runLocalCommand(command, cwd, timeout_ms), timeout_ms || 20000);
+    audit(ctx, "mcp.command.run", "device", device_id, { command: command.slice(0, 1000), cwd: cwd || "" });
+    return result(value);
+  });
+
+  server.registerTool("start_process", {
+    title: "Start process",
+    description: "Start a persistent shell process on Oracle or a paired DifSync device.",
+    inputSchema: z.object({ device_id: z.string().min(1), command: z.string().min(1), cwd: z.string().optional() }),
+    annotations: { readOnlyHint: false, destructiveHint: true }
+  }, async ({ device_id, command, cwd }) => {
+    requireScope(ctx, "difsync.execute");
+    const value = await onDevice(ctx, device_id, { op: "start_process", command, cwd }, async () => {
+      const s = spawnLocal(command, cwd); return { process_id: s.id, command: s.command, cwd: s.cwd, started_at: s.started_at };
+    });
+    audit(ctx, "mcp.process.start", "device", device_id, { command: command.slice(0, 1000), cwd: cwd || "" });
+    return result(value);
+  });
+
+  server.registerTool("read_process_output", {
+    title: "Read process output",
+    description: "Read current buffered output and exit state from a DifSync-managed process session.",
+    inputSchema: z.object({ device_id: z.string().min(1), process_id: z.string().min(1) }),
+    annotations: { readOnlyHint: true }
+  }, async ({ device_id, process_id }) => {
+    requireScope(ctx, "difsync.read");
+    const value = await onDevice(ctx, device_id, { op: "read_process_output", process_id }, async () => {
+      const s = sessions.get(process_id); if (!s) throw new Error("Unknown process session");
+      return { process_id: s.id, output: s.output, exited: s.exited, exit_code: s.exit_code };
+    });
+    return result(value);
+  });
+
+  server.registerTool("interact_process", {
+    title: "Send process input",
+    description: "Send input to a running DifSync-managed process or interactive shell.",
+    inputSchema: z.object({ device_id: z.string().min(1), process_id: z.string().min(1), input: z.string(), newline: z.boolean().optional() }),
+    annotations: { readOnlyHint: false, destructiveHint: true }
+  }, async ({ device_id, process_id, input, newline }) => {
+    requireScope(ctx, "difsync.execute");
+    const value = await onDevice(ctx, device_id, { op: "interact_process", process_id, input, newline }, async () => {
+      const s = sessions.get(process_id); if (!s) throw new Error("Unknown process session");
+      s.child.stdin.write(input); if (newline !== false) s.child.stdin.write("\n"); return { process_id, ok: true };
+    });
+    return result(value);
+  });
+
+  server.registerTool("terminate_process", {
+    title: "Terminate process",
+    description: "Terminate a running DifSync-managed process session.",
+    inputSchema: z.object({ device_id: z.string().min(1), process_id: z.string().min(1) }),
+    annotations: { readOnlyHint: false, destructiveHint: true }
+  }, async ({ device_id, process_id }) => {
+    requireScope(ctx, "difsync.execute");
+    const value = await onDevice(ctx, device_id, { op: "terminate_process", process_id }, async () => {
+      const s = sessions.get(process_id); if (!s) throw new Error("Unknown process session"); s.child.kill(); return { process_id, terminated: true };
+    });
+    audit(ctx, "mcp.process.terminate", "device", device_id, { process_id });
+    return result(value);
+  });
+
+  server.registerTool("list_sessions", {
+    title: "List managed process sessions",
+    description: "List process sessions started through DifSync on Oracle or a paired device.",
+    inputSchema: z.object({ device_id: z.string().min(1) }),
+    annotations: { readOnlyHint: true }
+  }, async ({ device_id }) => {
+    requireScope(ctx, "difsync.read");
+    const value = await onDevice(ctx, device_id, { op: "list_sessions" }, async () => ({
+      sessions: [...sessions.values()].map((s) => ({ process_id: s.id, command: s.command, cwd: s.cwd, started_at: s.started_at, exited: s.exited, exit_code: s.exit_code }))
+    }));
+    return result(value);
+  });
+
+  server.registerTool("command_history", {
+    title: "Recent DifSync command history",
+    description: "Return recent command status metadata for the authenticated DifSync account.",
+    inputSchema: z.object({ limit: z.number().int().min(1).max(100).optional() }),
+    annotations: { readOnlyHint: true }
+  }, async ({ limit }) => {
+    requireScope(ctx, "difsync.read");
+    return result({ commands: q.history.all(ctx.user_id, Math.max(1, Math.min(100, Number(limit) || 25))) });
+  });
 
   return server;
 }
 
-const handler = createMcpHandler(() => createServer());
-const mcpNodeHandler = toNodeHandler(handler, {
-  onerror(error) {
-    console.error("DifSync MCP HTTP adapter error:", error);
+function unauthorized(res) {
+  res.writeHead(401, {
+    "content-type": "application/json",
+    "WWW-Authenticate": 'Bearer resource_metadata="https://difsync.com/.well-known/oauth-protected-resource"'
+  });
+  res.end(JSON.stringify({ error: "authentication_required" }));
+}
+
+function nodeHandlerFor(ctx) {
+  const key = ctx.token_hash;
+  let entry = handlerCache.get(key);
+  if (entry) return entry.node;
+  const handler = createMcpHandler(() => createServer(ctx));
+  const node = toNodeHandler(handler, { onerror(error) { console.error("DifSync MCP HTTP adapter error:", error); } });
+  handlerCache.set(key, { node, handler, created_at: Date.now() });
+  if (handlerCache.size > 50) {
+    const oldest = [...handlerCache.entries()].sort((a,b) => a[1].created_at - b[1].created_at)[0];
+    if (oldest) handlerCache.delete(oldest[0]);
   }
-});
+  return node;
+}
 
 const server = http.createServer((req, res) => {
   const pathname = new URL(req.url || "/", "http://127.0.0.1").pathname;
 
   if (pathname === "/healthz") {
     res.writeHead(200, { "content-type": "application/json" });
-    res.end(JSON.stringify({ ok: true, service: "difsync-mcp-http", version: "0.3.0" }));
+    res.end(JSON.stringify({ ok: true, service: "difsync-mcp-http", version: "1.0.0", auth: "oauth2.1" }));
     return;
   }
 
@@ -394,17 +524,21 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  mcpNodeHandler(req, res);
+  const ctx = tokenContext(req);
+  if (!ctx) return unauthorized(res);
+  nodeHandlerFor(ctx)(req, res);
 });
 
 server.listen(PORT, HOST, () => {
-  console.error(`DifSync MCP HTTP listening on http://${HOST}:${PORT}/mcp`);
+  console.error(`DifSync MCP HTTP listening on http://${HOST}:${PORT}/mcp (OAuth protected)`);
 });
 
 async function shutdown(signal) {
   console.error(`DifSync MCP HTTP shutting down on ${signal}`);
   server.close(async () => {
-    await handler.close();
+    for (const entry of handlerCache.values()) {
+      try { await entry.handler.close(); } catch {}
+    }
     db.close();
     process.exit(0);
   });
