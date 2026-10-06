@@ -398,6 +398,11 @@ document.addEventListener("DOMContentLoaded", () => {
     showToast("Install command copied");
   });
 
+  $("#copy-windows-app-command")?.addEventListener("click", async () => {
+    await navigator.clipboard.writeText($("#windows-app-command").textContent || "");
+    showToast("Windows app command copied");
+  });
+
   window.addEventListener("popstate", () => {
     const pageByPath = {"/sync":"sync","/integrations":"connectors","/devices":"devices","/mcp-access":"mcp","/account":"account"};
     setPage(pageByPath[location.pathname] || "overview", false);
