@@ -22,30 +22,42 @@ if ($PairCode) { $env:DIFSYNC_PAIR_CODE = $PairCode }
 $env:DIFSYNC_DEVICE_NAME = $DeviceName
 if ($Roots) { $env:DIFSYNC_AGENT_ROOTS = $Roots }
 
-$proc = Start-Process -FilePath "node" -ArgumentList "agents/device-agent/src/index.js" -WorkingDirectory $InstallDir -PassThru -WindowStyle Hidden
-Start-Sleep -Seconds 6
-if (-not $proc.HasExited) { Stop-Process -Id $proc.Id -Force }
-
 $state = Join-Path $env:USERPROFILE ".difsync-agent\config.json"
-if (-not (Test-Path $state)) { throw "Pairing failed. Check the code and network." }
 
-$runner = Join-Path $InstallDir "agents\device-agent\run-agent.cmd"
-$lines = @("@echo off", "cd /d ""%~dp0\..\..""", "set DIFSYNC_DEVICE_NAME=$DeviceName")
-if ($Roots) { $lines += "set DIFSYNC_AGENT_ROOTS=$Roots" }
-$lines += "node agents\device-agent\src\index.js"
-$lines | Set-Content -Path $runner -Encoding ASCII
+if (-not (Test-Path $state)) {
+  if (-not $PairCode) { throw "This PC is not paired. Generate a pairing code at https://difsync.com/devices and run the installer with -PairCode." }
 
-$taskName = "DifSync Device Agent"
+  $proc = Start-Process -FilePath "node" -ArgumentList "agents/device-agent/src/index.js" -WorkingDirectory $InstallDir -PassThru -WindowStyle Hidden
+  Start-Sleep -Seconds 6
+  if (-not $proc.HasExited) { Stop-Process -Id $proc.Id -Force }
+  if (-not (Test-Path $state)) { throw "Pairing failed. Check the code and network." }
+}
 
-# /F already replaces an existing task, so there is no reason to delete/query first.
-# Avoiding that probe also prevents Windows PowerShell from treating a harmless
-# "task not found" message as a terminating native-command error.
-& schtasks.exe /Create /TN "$taskName" /TR "`"$runner`"" /SC ONLOGON /RL LIMITED /F
-if ($LASTEXITCODE -ne 0) { throw "Failed to create the DifSync startup task (exit $LASTEXITCODE)." }
+# DifSync is intentionally on-demand. Remove any legacy auto-start task.
+cmd.exe /c "schtasks /Delete /TN \"DifSync Device Agent\" /F >nul 2>&1" | Out-Null
 
-& schtasks.exe /Run /TN "$taskName"
-if ($LASTEXITCODE -ne 0) { throw "DifSync paired successfully, but the startup task could not be started (exit $LASTEXITCODE)." }
+$dashboardScript = Join-Path $InstallDir "agents\device-agent\windows\dashboard.ps1"
+if (-not (Test-Path $dashboardScript)) { throw "DifSync dashboard is missing from the installation." }
 
-Write-Host "DifSync Agent installed and started."
-Write-Host "State: $state"
-Write-Host "Install: $InstallDir"
+$shortcutDir = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs"
+$shortcutPath = Join-Path $shortcutDir "DifSync.lnk"
+$ws = New-Object -ComObject WScript.Shell
+$shortcut = $ws.CreateShortcut($shortcutPath)
+$shortcut.TargetPath = "powershell.exe"
+$shortcut.Arguments = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$dashboardScript`" -InstallDir `"$InstallDir`" -DeviceName `"$DeviceName`""
+$shortcut.WorkingDirectory = $InstallDir
+$shortcut.Description = "DifSync Remote Access"
+$shortcut.Save()
+
+Write-Host "DifSync installed as an on-demand app."
+Write-Host "Opening DifSync now. Closing the app takes this PC offline."
+Write-Host "Start Menu shortcut: $shortcutPath"
+
+Start-Process -FilePath "powershell.exe" -ArgumentList @(
+  "-NoProfile",
+  "-ExecutionPolicy", "Bypass",
+  "-WindowStyle", "Hidden",
+  "-File", "`"$dashboardScript`"",
+  "-InstallDir", "`"$InstallDir`"",
+  "-DeviceName", "`"$DeviceName`""
+) -WorkingDirectory $InstallDir
