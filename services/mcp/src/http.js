@@ -570,8 +570,37 @@ const server = http.createServer((req, res) => {
   }
 
   const ctx = tokenContext(req);
-  if (!ctx) return unauthorized(res);
-  nodeHandlerFor(ctx)(req, res);
+  if (!ctx) {
+    console.error("[DifSync MCP] unauthorized", { method: req.method, path: pathname });
+    return unauthorized(res);
+  }
+
+  console.error("[DifSync MCP] request", {
+    method: req.method,
+    path: pathname,
+    content_type: String(req.headers["content-type"] || ""),
+    accept: String(req.headers.accept || ""),
+    user: ctx.email
+  });
+
+  try {
+    const out = nodeHandlerFor(ctx)(req, res);
+    if (out && typeof out.catch === "function") {
+      out.catch((error) => {
+        console.error("[DifSync MCP] handler failed:", String(error?.stack || error));
+        if (!res.headersSent) {
+          res.writeHead(500, { "content-type": "application/json" });
+          res.end(JSON.stringify({ error: "mcp_handler_failed" }));
+        }
+      });
+    }
+  } catch (error) {
+    console.error("[DifSync MCP] handler threw:", String(error?.stack || error));
+    if (!res.headersSent) {
+      res.writeHead(500, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "mcp_handler_failed" }));
+    }
+  }
 });
 
 server.listen(PORT, HOST, () => {
@@ -584,7 +613,9 @@ async function shutdown(signal) {
     for (const entry of handlerCache.values()) {
       try { await entry.handler.close(); } catch {}
     }
-    db.close();
+    // Do not call db.close() during PM2 shutdown. better-sqlite3 finalizes native
+    // statements during Node teardown, and explicit close here can race those
+    // cleanup hooks on ARM64 and trigger a native assertion.
     process.exit(0);
   });
 }
