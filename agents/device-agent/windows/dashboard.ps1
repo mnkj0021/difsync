@@ -56,7 +56,7 @@ $agentPath = Join-Path $InstallDir "agents\device-agent\src\index.js"
         <ColumnDefinition Width="Auto"/>
       </Grid.ColumnDefinitions>
       <StackPanel>
-        <TextBlock Text="DifSync" FontSize="25" FontWeight="SemiBold" LetterSpacing="-0.4"/>
+        <TextBlock Text="DifSync" FontSize="25" FontWeight="SemiBold"/>
         <TextBlock Text="Remote Access" Margin="0,4,0,0" Foreground="#8290A3" FontSize="11"/>
       </StackPanel>
       <Border Grid.Column="1" VerticalAlignment="Center" Background="#111822" BorderBrush="#202B38" BorderThickness="1" CornerRadius="10" Padding="10,6">
