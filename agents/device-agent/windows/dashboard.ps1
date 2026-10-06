@@ -10,7 +10,7 @@ Add-Type -AssemblyName System.Drawing
 [System.Windows.Forms.Application]::EnableVisualStyles()
 
 $createdNew = $false
-$mutex = New-Object System.Threading.Mutex($true, "Local\DifSyncDeviceDashboard", [ref]$createdNew)
+$mutex = New-Object System.Threading.Mutex -ArgumentList $true, "Local\DifSyncDeviceDashboard", ([ref]$createdNew)
 if (-not $createdNew) {
   [System.Windows.Forms.MessageBox]::Show("DifSync is already open.", "DifSync") | Out-Null
   exit 0
