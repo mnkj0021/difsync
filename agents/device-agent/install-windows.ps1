@@ -36,28 +36,46 @@ if (-not (Test-Path $state)) {
 # DifSync is intentionally on-demand. Remove any legacy auto-start task.
 cmd.exe /c "schtasks /Delete /TN \"DifSync Device Agent\" /F >nul 2>&1" | Out-Null
 
-$dashboardScript = Join-Path $InstallDir "agents\device-agent\windows\dashboard.ps1"
-if (-not (Test-Path $dashboardScript)) { throw "DifSync dashboard is missing from the installation." }
+$appSource = Join-Path $InstallDir "agents\device-agent\windows\DifSyncApp.cs"
+if (-not (Test-Path $appSource)) { throw "DifSync Windows app source is missing from the installation." }
+
+$cscCandidates = @(
+  "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe",
+  "$env:WINDIR\Microsoft.NET\Framework\v4.0.30319\csc.exe"
+)
+$csc = $cscCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+if (-not $csc) { throw "Windows .NET Framework C# compiler is required." }
+
+$appExe = Join-Path $InstallDir "DifSync.exe"
+$tempExe = Join-Path $env:TEMP ("DifSync-" + [guid]::NewGuid().ToString("N") + ".exe")
+& $csc /nologo /target:winexe /optimize+ /reference:System.Windows.Forms.dll /reference:System.Drawing.dll /out:$tempExe $appSource
+if ($LASTEXITCODE -ne 0 -or -not (Test-Path $tempExe)) { throw "DifSync Windows app compilation failed." }
+Move-Item -Force $tempExe $appExe
 
 $shortcutDir = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs"
 $shortcutPath = Join-Path $shortcutDir "DifSync.lnk"
 $ws = New-Object -ComObject WScript.Shell
 $shortcut = $ws.CreateShortcut($shortcutPath)
-$shortcut.TargetPath = "powershell.exe"
-$shortcut.Arguments = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$dashboardScript`" -InstallDir `"$InstallDir`" -DeviceName `"$DeviceName`""
+$shortcut.TargetPath = $appExe
+$shortcut.Arguments = "--device-name=`"$DeviceName`""
 $shortcut.WorkingDirectory = $InstallDir
 $shortcut.Description = "DifSync Remote Access"
+$shortcut.IconLocation = "$appExe,0"
 $shortcut.Save()
 
-Write-Host "DifSync installed as an on-demand app."
+$uninstallScript = Join-Path $InstallDir "agents\device-agent\uninstall-windows.ps1"
+if (Test-Path $uninstallScript) {
+  $uninstallShortcutPath = Join-Path $shortcutDir "Uninstall DifSync.lnk"
+  $uninstallShortcut = $ws.CreateShortcut($uninstallShortcutPath)
+  $uninstallShortcut.TargetPath = "powershell.exe"
+  $uninstallShortcut.Arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$uninstallScript`" -InstallDir `"$InstallDir`""
+  $uninstallShortcut.WorkingDirectory = $InstallDir
+  $uninstallShortcut.Description = "Uninstall DifSync"
+  $uninstallShortcut.Save()
+}
+
+Write-Host "DifSync installed as an on-demand Windows app."
 Write-Host "Opening DifSync now. Closing the app takes this PC offline."
 Write-Host "Start Menu shortcut: $shortcutPath"
 
-Start-Process -FilePath "powershell.exe" -ArgumentList @(
-  "-NoProfile",
-  "-ExecutionPolicy", "Bypass",
-  "-WindowStyle", "Hidden",
-  "-File", "`"$dashboardScript`"",
-  "-InstallDir", "`"$InstallDir`"",
-  "-DeviceName", "`"$DeviceName`""
-) -WorkingDirectory $InstallDir
+Start-Process -FilePath $appExe -ArgumentList "--device-name=`"$DeviceName`"" -WorkingDirectory $InstallDir
