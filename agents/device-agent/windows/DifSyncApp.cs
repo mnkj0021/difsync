@@ -52,7 +52,6 @@ internal sealed class DifSyncForm : Form
     private readonly string agentPath;
     private Process agentProcess;
     private bool connected;
-    private bool realExit;
     private NotifyIcon tray;
     private ToolStripMenuItem connectItem;
     private Label statusTitle;
@@ -148,11 +147,9 @@ internal sealed class DifSyncForm : Form
         };
         try
         {
-            string pngPath = Path.Combine(installDir, "apps", "web", "public", "assets", "difsync-icon.png");
-            if (File.Exists(pngPath)) logo.Image = Image.FromFile(pngPath);
-            else if (Icon != null) logo.Image = Icon.ToBitmap();
+            if (Icon != null) logo.Image = Icon.ToBitmap();
         }
-        catch { if (Icon != null) logo.Image = Icon.ToBitmap(); }
+        catch { }
         Controls.Add(logo);
 
         Controls.Add(Label("DifSync", 78, 22, 230, 36, 20, TextColor, true));
@@ -262,7 +259,7 @@ internal sealed class DifSyncForm : Form
         var updateItem = new ToolStripMenuItem("Update DifSync");
         updateItem.Click += delegate { StartSelfUpdate(); };
         var exitItem = new ToolStripMenuItem("Exit");
-        exitItem.Click += delegate { realExit = true; Close(); };
+        exitItem.Click += delegate { Close(); };
 
         menu.Items.Add(openItem);
         menu.Items.Add(connectItem);
@@ -404,7 +401,6 @@ internal sealed class DifSyncForm : Form
                 WindowStyle = ProcessWindowStyle.Hidden
             });
 
-            realExit = true;
             Close();
         }
         catch (Exception ex)
