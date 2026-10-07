@@ -774,7 +774,7 @@ border-radius:9px;min-height:38px;padding:0 14px;border:1px solid #23425d;displa
 .product-image-wrap{height:128px;border-radius:9px;display:grid;place-items:center;overflow:hidden;background:
 radial-gradient(circle at 50% 45%,rgba(28,83,123,.28),rgba(8,15,22,.4) 58%,#071019 100%)}
 .product-image-wrap.large{height:190px}
-.product-image-wrap img{width:92%;height:92%;object-fit:contain;mix-blend-mode:screen;filter:drop-shadow(0 8px 18px rgba(0,0,0,.4))}
+.product-image-wrap img{width:92%;height:92%;object-fit:contain;filter:drop-shadow(0 8px 18px rgba(0,0,0,.4))}
 .device-live{margin-top:9px;display:flex;align-items:center;gap:6px;color:#67dca2;font-size:8px}
 .device-live .status-dot,.device-live i.status-dot{width:6px;height:6px;box-shadow:none}
 .product-device-card h3{margin:5px 0 0;font-size:10px;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -834,7 +834,7 @@ radial-gradient(circle at 50% 45%,rgba(28,83,123,.28),rgba(8,15,22,.4) 58%,#0710
 .integration-premium-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px}
 .integration-premium-card{border-radius:13px;padding:13px;display:grid;grid-template-columns:92px 1fr;gap:12px}
 .integration-art{width:92px;height:92px;border-radius:10px;background:radial-gradient(circle,#193149,#08121c);display:grid;place-items:center;overflow:hidden}
-.integration-art img{width:90%;height:90%;object-fit:contain;mix-blend-mode:screen}
+.integration-art img{width:90%;height:90%;object-fit:contain}
 .integration-art.native{color:#7bc5ef}
 .integration-big-icon{width:36px;height:36px;fill:none;stroke:currentColor;stroke-width:1.5}
 .integration-premium-card h3{font-size:13px}.integration-premium-card p{margin:4px 0 0;font-size:8px}
