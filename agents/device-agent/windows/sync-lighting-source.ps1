@@ -40,6 +40,13 @@ if (Test-Path $clientSource) {
     $from = Join-Path $clientSource ("src\" + $name)
     if (Test-Path $from) { Copy-Item -Force $from (Join-Path $clientTarget ("src\" + $name)) }
   }
+
+  $publicSource = Join-Path $clientSource "public"
+  $publicTarget = Join-Path $clientTarget "public"
+  if (Test-Path $publicSource) {
+    New-Item -ItemType Directory -Force -Path $publicTarget | Out-Null
+    Copy-Item -Recurse -Force (Join-Path $publicSource "*") $publicTarget
+  }
 }
 
 $desktopSource = Join-Path $source "clients\desktop-electron"
