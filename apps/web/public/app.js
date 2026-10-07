@@ -1,5 +1,20 @@
 const $ = (selector, root = document) => root.querySelector(selector);
-const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
+const $ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
+
+function iconSvg(name, className = "ui-icon") {
+  return `<svg class="${className}" aria-hidden="true"><use href="#i-${escapeAttr(name)}"></use></svg>`;
+}
+
+function deviceIconName(type, name = "") {
+  const key = String(type || "").toUpperCase();
+  const label = String(name || "").toLowerCase();
+  if (key.includes("KEYBOARD") || label.includes("keyboard") || label.includes("apex")) return "keyboard";
+  if (key.includes("MOUSE") || label.includes("mouse") || label.includes("aerox")) return "mouse";
+  if (key.includes("GPU") || label.includes("geforce") || label.includes("rtx")) return "gpu";
+  if (key.includes("MOTHERBOARD") || label.includes("aura") || label.includes("motherboard")) return "board";
+  if (label.includes("govee") || key.includes("LIGHT") || key.includes("LED")) return "bulb";
+  return "plug";
+}
 
 const state = {
   user: null,
@@ -124,7 +139,7 @@ function renderOverview() {
     list.className = "agent-list";
     list.innerHTML = state.agents.map((agent) => `
       <div class="agent-row">
-        <div class="agent-icon">PC</div>
+        <div class="agent-icon">${iconSvg("monitor", "agent-svg")}</div>
         <div>
           <b>${escapeHtml(agent.name || agent.id)}</b>
           <small>${escapeHtml(agent.platform || "DifSync agent")} - ${inventoryCount(agent)} discovered devices</small>
@@ -158,7 +173,7 @@ function renderDevices() {
           <span class="system-status"><i class="online-dot ${agent.online ? "on" : ""}"></i>${agent.online ? "Online" : "Offline"}</span>
         </div>
         <div class="system-identity">
-          <div class="agent-icon">PC</div>
+          <div class="agent-icon">${iconSvg("monitor", "agent-svg")}</div>
           <div><h3>${escapeHtml(agent.name || agent.id)}</h3><p>${escapeHtml(agent.platform || "Unknown platform")} · ${escapeHtml(agent.version || "agent")}</p></div>
         </div>
         <dl class="system-meta">
@@ -168,7 +183,7 @@ function renderDevices() {
           <div><dt>Lighting</dt><dd>${escapeHtml(syncStatus)}</dd></div>
         </dl>
         <div class="system-actions">
-          <button class="button button-soft system-inspect-button" data-inspect-device="${escapeAttr(agent.id)}" ${agent.online ? "" : "disabled"}>Open system details</button>
+          <button class="button button-soft system-inspect-button button-with-icon" data-inspect-device="${escapeAttr(agent.id)}" ${agent.online ? "" : "disabled"}>${iconSvg("chevron", "button-icon")}<span>Open system details</span></button>
         </div>
         <div class="system-detail-panel hidden" data-device-detail="${escapeAttr(agent.id)}"></div>
       </article>
@@ -207,14 +222,14 @@ async function loadDeviceDetails(agentId, button) {
 
   if (!panel.classList.contains("hidden") && panel.dataset.loaded === "true") {
     panel.classList.add("hidden");
-    button.textContent = "Open system details";
+    button.innerHTML = iconSvg("chevron", "button-icon") + "<span>Open system details</span>";
     return;
   }
 
   panel.classList.remove("hidden");
   panel.innerHTML = `<div class="device-detail-loading">Loading structured system data...</div>`;
   button.disabled = true;
-  button.textContent = "Loading...";
+  button.innerHTML = iconSvg("refresh", "button-icon spin-icon") + "<span>Loading...</span>";
 
   try {
     const [metricsResponse, processResponse, commandResponse] = await Promise.all([
@@ -238,10 +253,10 @@ async function loadDeviceDetails(agentId, button) {
 
     panel.innerHTML = `
       <div class="device-detail-grid">
-        <div><span>CPU</span><b>${escapeHtml(metrics.cpu_model || "Unknown")}</b><small>${escapeHtml(String(metrics.cpu_threads || 0))} threads</small></div>
-        <div><span>Memory</span><b>${escapeHtml(formatBytes(memoryUsed))} used</b><small>${escapeHtml(formatBytes(metrics.memory_total_bytes))} total</small></div>
-        <div><span>Uptime</span><b>${escapeHtml(formatUptime(metrics.uptime_seconds))}</b><small>${escapeHtml(metrics.release || "")}</small></div>
-        <div><span>Network</span><b>${Object.keys(networks).length} adapters</b><small>Structured inventory</small></div>
+        <div><span>${iconSvg("cpu", "metric-icon")} CPU</span><b>${escapeHtml(metrics.cpu_model || "Unknown")}</b><small>${escapeHtml(String(metrics.cpu_threads || 0))} threads</small></div>
+        <div><span>${iconSvg("memory", "metric-icon")} Memory</span><b>${escapeHtml(formatBytes(memoryUsed))} used</b><small>${escapeHtml(formatBytes(metrics.memory_total_bytes))} total</small></div>
+        <div><span>${iconSvg("refresh", "metric-icon")} Uptime</span><b>${escapeHtml(formatUptime(metrics.uptime_seconds))}</b><small>${escapeHtml(metrics.release || "")}</small></div>
+        <div><span>${iconSvg("network", "metric-icon")} Network</span><b>${Object.keys(networks).length} adapters</b><small>Structured inventory</small></div>
       </div>
       <div class="device-detail-section">
         <div class="device-detail-head"><b>Drives</b><small>${disks.length} roots</small></div>
@@ -274,7 +289,7 @@ async function loadDeviceDetails(agentId, button) {
     `;
 
     panel.dataset.loaded = "true";
-    button.textContent = "Hide system details";
+    button.innerHTML = iconSvg("chevron", "button-icon chevron-open") + "<span>Hide system details</span>";
     $("[data-kill-process]", panel).forEach((killButton) => {
       killButton.addEventListener("click", async () => {
         const pid = Number(killButton.dataset.killProcess);
@@ -298,7 +313,7 @@ async function loadDeviceDetails(agentId, button) {
     });
   } catch (error) {
     panel.innerHTML = `<div class="device-detail-error">${escapeHtml(error.message || "Unable to inspect this device.")}</div>`;
-    button.textContent = "Retry system details";
+    button.innerHTML = iconSvg("refresh", "button-icon") + "<span>Retry system details</span>";
   } finally {
     button.disabled = false;
   }
@@ -338,7 +353,7 @@ function renderSyncComponents() {
   root.className = "component-list";
   root.innerHTML = components.map((component) => `
     <div class="component-row">
-      <span class="component-mark">◇</span>
+      <span class="component-mark">${iconSvg(deviceIconName(component.type, component.name), "component-svg")}</span>
       <div><b>${escapeHtml(component.name)}</b><small>${escapeHtml(component.type)} · ${escapeHtml(component.system)}</small></div>
       <span class="component-source">${escapeHtml(component.source)}</span>
     </div>
@@ -369,11 +384,11 @@ function renderConnectors() {
 }
 
 function connectorMonogram(id) {
-  if (id === "govee") return "G";
-  if (id === "philips-hue") return "H";
-  if (id === "google-home") return "GH";
-  if (id === "alexa") return "A";
-  return "D";
+  if (id === "govee") return iconSvg("bulb", "connector-svg");
+  if (id === "philips-hue") return iconSvg("bulb", "connector-svg");
+  if (id === "google-home") return iconSvg("plug", "connector-svg");
+  if (id === "alexa") return iconSvg("plug", "connector-svg");
+  return iconSvg("plug", "connector-svg");
 }
 
 function openConnector(providerId) {
