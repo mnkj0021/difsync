@@ -92,16 +92,54 @@ function apiError(error: unknown) {
   return String(error || "Unknown error");
 }
 
-function icon(section: Section) {
-  const paths: Record<Section, string> = {
+function svgIcon(name: string, className = "") {
+  const paths: Record<string, string> = {
     studio: "M4 7h16M7 4v6M17 4v6M4 17h16M10 14v6M14 14v6",
-    devices: "M7 3h10v18H7zM10 7h4M10 11h4M10 15h4",
+    devices: "M4 5h16v11H4zM8 20h8M12 16v4",
     effects: "M12 2l2.4 5.2L20 9l-5 3 1.4 5.7L12 15l-4.4 2.7L9 12 4 9l5.6-1.8z",
     layout: "M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z",
     ai: "M12 3a5 5 0 015 5v1a4 4 0 012 7v2H5v-2a4 4 0 012-7V8a5 5 0 015-5zM9 12h.01M15 12h.01M9 16h6",
     settings: "M12 8a4 4 0 100 8 4 4 0 000-8zm8 4l2-1-2-3-2 .5-1.5-1.5.5-2-3-2-1 2-2 .5L6 6 4 4 2 7l1 2-.5 2L0 12l2 3 2-.5L5.5 16 5 18l3 2 1-2 2 .5 1 2.5 3-1 .5-2 2-1.5 2 .5 2-3-2-1 .5-2L19 9l1-1z",
+    sun: "M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6 7 7M17 17l1.4 1.4M18.4 5.6 17 7M7 17l-1.4 1.4M16 12a4 4 0 11-8 0 4 4 0 018 0z",
+    moon: "M20 15.5A8 8 0 118.5 4 6.5 6.5 0 0020 15.5z",
+    refresh: "M20 6v5h-5M4 18v-5h5M18.2 9A7 7 0 006 6.8L4 9M5.8 15A7 7 0 0018 17.2L20 15",
+    play: "M8 5v14l11-7z",
+    stop: "M7 7h10v10H7z",
+    cloud: "M7 18h10a4 4 0 00.7-7.9A6 6 0 006.2 8.6 4.5 4.5 0 007 18z",
+    bulb: "M9 18h6M10 22h4M8.5 14.5A7 7 0 1115.5 14.5c-.9.8-1.5 1.8-1.5 3.5h-4c0-1.7-.6-2.7-1.5-3.5z",
+    keyboard: "M2 6h20v12H2zM6 10h.01M10 10h.01M14 10h.01M18 10h.01M6 14h12",
+    mouse: "M7 2h10v20H7zM12 2v6",
+    gpu: "M3 6h16v10H3zM9 8a3 3 0 100 6 3 3 0 000-6zM19 9h2M19 13h2",
+    board: "M3 3h18v18H3zM8 8h8v8H8zM5 8h3M5 12h3M5 16h3",
+    memory: "M3 7h18v10H3zM7 10v4M11 10v4M15 10v4M19 10v4",
+    arrowUp: "M12 19V5M6 11l6-6 6 6",
+    arrowDown: "M12 5v14M6 13l6 6 6-6",
+    wand: "m4 20 10-10M14 4l1.2 2.8L18 8l-2.8 1.2L14 12l-1.2-2.8L10 8l2.8-1.2zM19 14l.8 1.8 1.8.8-1.8.8L19 19.2l-.8-1.8-1.8-.8 1.8-.8z"
   };
-  return <svg viewBox="0 0 24 24" aria-hidden="true"><path d={paths[section]} /></svg>;
+  return <svg className={className} viewBox="0 0 24 24" aria-hidden="true"><path d={paths[name] || paths.devices} /></svg>;
+}
+
+function icon(section: Section) {
+  return svgIcon(section);
+}
+
+function deviceIcon(type: string, name: string) {
+  const key = String(type || "").toUpperCase();
+  const label = String(name || "").toLowerCase();
+  if (key.includes("KEYBOARD") || label.includes("keyboard") || label.includes("apex")) return svgIcon("keyboard", "device-type-icon");
+  if (key.includes("MOUSE") || label.includes("mouse") || label.includes("aerox")) return svgIcon("mouse", "device-type-icon");
+  if (key.includes("GPU") || label.includes("rtx") || label.includes("geforce")) return svgIcon("gpu", "device-type-icon");
+  if (key.includes("MOTHERBOARD") || label.includes("aura")) return svgIcon("board", "device-type-icon");
+  if (key.includes("DRAM") || label.includes("ram")) return svgIcon("memory", "device-type-icon");
+  return svgIcon("bulb", "device-type-icon");
+}
+
+function BrandMark() {
+  return <svg className="brand-mark-svg" viewBox="0 0 64 64" aria-hidden="true">
+    <path d="M18 24.5 27.5 15 37 24.5 27.5 34 18 24.5Z" />
+    <path className="brand-mark-secondary" d="M27 39.5 36.5 30 46 39.5 36.5 49 27 39.5Z" />
+    <path className="brand-mark-link" d="M30.5 31.2 33.7 28" />
+  </svg>;
 }
 
 export default function App() {
@@ -513,7 +551,7 @@ export default function App() {
     <div className="app-shell">
       <aside className="sidebar">
         <div className="brand">
-          <div className="brand-mark"><span>N</span></div>
+          <div className="brand-mark"><BrandMark /></div>
           <div><strong>DifSync</strong><small>Lighting Studio</small></div>
         </div>
         <nav>
@@ -529,7 +567,7 @@ export default function App() {
             <span className={localOnline ? "status-dot online" : "status-dot"} />
             <div><strong>{localOnline ? "Engine online" : "Engine offline"}</strong><small>{health?.pc_rgb_backend || "Local service"}</small></div>
           </div>
-          <button className="quiet-btn" onClick={ensureRuntime}>Restart / reconnect</button>
+          <button className="quiet-btn icon-action" onClick={ensureRuntime}>{svgIcon("refresh", "inline-icon")}<span>Restart / reconnect</span></button>
         </div>
       </aside>
 
@@ -544,7 +582,7 @@ export default function App() {
               <span className="toggle-track"><span /></span>
               <span><b>{cloudEnabled ? "Remote On" : "Remote Off"}</b><small>difsync.com</small></span>
             </button>
-            <button className="theme-btn" onClick={() => setTheme(theme === "dark" ? "light" : "dark")}>{theme === "dark" ? "Light" : "Dark"} mode</button>
+            <button className="theme-btn icon-action" onClick={() => setTheme(theme === "dark" ? "light" : "dark")}>{svgIcon(theme === "dark" ? "sun" : "moon", "inline-icon")}<span>{theme === "dark" ? "Light" : "Dark"} mode</span></button>
           </div>
         </header>
 
@@ -570,8 +608,8 @@ export default function App() {
                   <input type="range" min="0" max="100" value={brightness} onChange={(e) => setBrightness(Number(e.target.value))} />
                 </div>
                 <div className="action-row">
-                  <button className="primary-action" onClick={() => applyColor()} disabled={busy === "apply"}>Apply scene</button>
-                  <button className="secondary-action" onClick={stopEffects}>Stop animation</button>
+                  <button className="primary-action icon-action" onClick={() => applyColor()} disabled={busy === "apply"}>{svgIcon("play", "inline-icon")}<span>Apply scene</span></button>
+                  <button className="secondary-action icon-action" onClick={stopEffects}>{svgIcon("stop", "inline-icon")}<span>Stop animation</span></button>
                 </div>
                 <div className="preset-row">
                   {presetScenes.map((preset) => (
@@ -607,7 +645,7 @@ export default function App() {
               </section>
 
               <section className="quick-panel">
-                <div className="panel-title-row"><div><span className="section-kicker">System</span><h3>Device health</h3></div><button className="text-btn" onClick={() => refreshAll(false)}>Refresh</button></div>
+                <div className="panel-title-row"><div><span className="section-kicker">System</span><h3>Device health</h3></div><button className="text-btn icon-action" onClick={() => refreshAll(false)}>{svgIcon("refresh", "inline-icon")}<span>Refresh</span></button></div>
                 <div className="stat-grid">
                   <div><span>PC devices</span><b>{pcDevices.length}</b></div>
                   <div><span>Room lights</span><b>{goveeDevices.length}</b></div>
@@ -629,7 +667,7 @@ export default function App() {
                   return (
                     <article className={selected ? "device-card selected" : "device-card"} key={device.id}>
                       <button className="device-select" onClick={() => setSelectedPc((ids) => selected ? ids.filter((x) => x !== Number(device.id)) : [...ids, Number(device.id)])}><span className="check">{selected ? "✓" : ""}</span></button>
-                      <div className="device-orb" style={{ background: deviceColor }} />
+                      <div className="device-orb" style={{ background: deviceColor }}><span className="device-icon-shell">{deviceIcon(device.type, device.name)}</span></div>
                       <div className="device-copy"><span className="device-kind">{displayDeviceType(device.type)}</span><h3>{device.name}</h3><p>{device.driver || device.backend || "RGB device"}</p></div>
                       <div className="device-badges"><span>{device.led_count || 0} LEDs</span><span>{device.per_led_supported === false ? "Static" : "Per LED"}</span></div>
                     </article>
@@ -641,7 +679,7 @@ export default function App() {
                   return (
                     <article className={selected ? "device-card selected" : "device-card"} key={gid}>
                       <button className="device-select" onClick={() => setSelectedGovee((ids) => selected ? ids.filter((x) => x !== gid) : [...ids, gid])}><span className="check">{selected ? "✓" : ""}</span></button>
-                      <div className="device-orb room" style={{ background: color }} />
+                      <div className="device-orb room" style={{ background: color }}><span className="device-icon-shell">{svgIcon("bulb", "device-type-icon")}</span></div>
                       <div className="device-copy"><span className="device-kind">Room light</span><h3>{device.deviceName || device.name || "Govee"}</h3><p>{device.model || gid}</p></div>
                       <div className="device-badges"><span>Cloud / LAN</span><span>Whole light</span></div>
                     </article>
@@ -690,7 +728,7 @@ export default function App() {
                     <div className="order-index">{String(index + 1).padStart(2, "0")}</div>
                     <div className="flow-line"><span style={{ background: effectPalette[index % effectPalette.length] || color }} /></div>
                     <div className="layout-copy"><strong>{item.name}</strong><span>{item.kind} · {item.type}</span></div>
-                    <div className="layout-actions"><button onClick={() => moveLayout(index, -1)} disabled={index === 0}>↑</button><button onClick={() => moveLayout(index, 1)} disabled={index === layoutKeys.length - 1}>↓</button></div>
+                    <div className="layout-actions"><button aria-label="Move up" onClick={() => moveLayout(index, -1)} disabled={index === 0}>{svgIcon("arrowUp", "inline-icon")}</button><button aria-label="Move down" onClick={() => moveLayout(index, 1)} disabled={index === layoutKeys.length - 1}>{svgIcon("arrowDown", "inline-icon")}</button></div>
                   </div>;
                 })}
               </div>
@@ -702,7 +740,7 @@ export default function App() {
               <section className="ai-compose">
                 <span className="section-kicker">AI Director</span><h2>Describe the room you want</h2><p>DifSync uses local Ollama models when available. If Ollama is offline, the scene parser still works locally without sending your prompt anywhere.</p>
                 <textarea value={aiPrompt} onChange={(e) => setAiPrompt(e.target.value)} rows={6} />
-                <div className="ai-footer"><span>{aiStatus.online ? aiStatus.models.length + " local model(s) available" : "Ollama offline · deterministic local fallback active"}</span><button className="primary-action" onClick={generateAi} disabled={aiBusy}>{aiBusy ? "Generating…" : "Generate scene"}</button></div>
+                <div className="ai-footer"><span>{aiStatus.online ? aiStatus.models.length + " local model(s) available" : "Ollama offline · deterministic local fallback active"}</span><button className="primary-action icon-action" onClick={generateAi} disabled={aiBusy}>{svgIcon("wand", "inline-icon")}<span>{aiBusy ? "Generating…" : "Generate scene"}</span></button></div>
               </section>
               <section className="ai-result">
                 {aiScene ? <>
@@ -712,7 +750,7 @@ export default function App() {
                   <div className="ai-palette">{aiScene.palette && aiScene.palette.map((p, i) => <span key={i} style={{ background: rgbToHex(rgbArray(p)) }} />)}</div>
                   {aiScene.ai_error && <small className="muted">AI fallback reason: {aiScene.ai_error}</small>}
                   <button className="primary-action full" onClick={applyAiScene}>Apply AI scene</button>
-                </> : <div className="empty-result"><div className="ai-symbol">N</div><h3>No generated scene yet</h3><p>Your generated palette, effect and timing appear here before anything is applied.</p></div>}
+                </> : <div className="empty-result"><div className="ai-symbol"><BrandMark /></div><h3>No generated scene yet</h3><p>Your generated palette, effect and timing appear here before anything is applied.</p></div>}
               </section>
             </div>
           )}
