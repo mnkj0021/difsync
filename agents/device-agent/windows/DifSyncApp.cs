@@ -121,6 +121,12 @@ internal sealed class DifSyncForm : Form
     {
         try
         {
+            string icoPath = Path.Combine(installDir, "apps", "web", "public", "assets", "difsync-icon.ico");
+            if (File.Exists(icoPath))
+            {
+                Icon = new Icon(icoPath);
+                return;
+            }
             string iconPath = Path.Combine(installDir, "apps", "web", "public", "assets", "difsync-icon.png");
             if (!File.Exists(iconPath)) return;
             using (var bitmap = new Bitmap(iconPath))
@@ -133,8 +139,24 @@ internal sealed class DifSyncForm : Form
 
     private void BuildUi()
     {
-        Controls.Add(Label("DifSync", 28, 24, 280, 36, 20, TextColor, true));
-        Controls.Add(Label("Remote Access", 28, 61, 220, 20, 9, Muted));
+        var logo = new PictureBox
+        {
+            Location = new Point(28, 24),
+            Size = new Size(38, 38),
+            SizeMode = PictureBoxSizeMode.Zoom,
+            BackColor = Color.Transparent
+        };
+        try
+        {
+            string pngPath = Path.Combine(installDir, "apps", "web", "public", "assets", "difsync-icon.png");
+            if (File.Exists(pngPath)) logo.Image = Image.FromFile(pngPath);
+            else if (Icon != null) logo.Image = Icon.ToBitmap();
+        }
+        catch { if (Icon != null) logo.Image = Icon.ToBitmap(); }
+        Controls.Add(logo);
+
+        Controls.Add(Label("DifSync", 78, 22, 230, 36, 20, TextColor, true));
+        Controls.Add(Label("Remote Access", 78, 59, 220, 20, 9, Muted));
 
         var host = Label(Environment.MachineName, 350, 34, 120, 22, 8, Muted, true);
         host.TextAlign = ContentAlignment.MiddleRight;
