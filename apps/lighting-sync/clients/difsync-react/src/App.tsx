@@ -169,6 +169,7 @@ export default function App() {
   const [eventFeed, setEventFeed] = useState<string[]>([]);
   const [, setRendererTick] = useState(0);
   const [deviceFilter, setDeviceFilter] = useState<"all" | "peripherals" | "components" | "lighting">("all");
+  const [searchQuery, setSearchQuery] = useState("");
   const toastTimer = useRef<number | null>(null);
 
   const client = useMemo(
@@ -374,7 +375,7 @@ export default function App() {
     setLayoutKeys(next);
   }
 
-  async function startEffect() {
+  async function startEffect(effectOverride = effect, colorOverride = color, brightnessOverride = brightness) {
     if (!isDesktop) {
       notify("Live per-LED rendering runs on the DifSync PC");
       return;
@@ -386,6 +387,9 @@ export default function App() {
 
     setBusy("effect");
     try {
+      const resolvedEffect = effectOverride || effect;
+      const resolvedColor = colorOverride || color;
+      const resolvedBrightness = Number.isFinite(Number(brightnessOverride)) ? Number(brightnessOverride) : brightness;
       const palette = effectPalette.map(hexToRgb);
       const physicalOrder = layoutKeys
         .filter((key) => key.startsWith("pc:"))
@@ -407,8 +411,8 @@ export default function App() {
         await localApi("/api/openrgb/color", {
           method: "POST",
           body: JSON.stringify({
-            rgb: hexToRgb(color),
-            brightness,
+            rgb: hexToRgb(resolvedColor),
+            brightness: resolvedBrightness,
             device_ids: staticIds,
           }),
         }, 20000);
@@ -418,12 +422,12 @@ export default function App() {
         void localApi("/api/govee/color", {
           method: "POST",
           body: JSON.stringify({
-            rgb: hexToRgb(color),
-            brightness,
+            rgb: hexToRgb(resolvedColor),
+            brightness: resolvedBrightness,
             device_ids: selectedGovee,
           }),
         }, 12000)
-          .then(() => pushEvent("Room lights anchored to " + color))
+          .then(() => pushEvent("Room lights anchored to " + resolvedColor))
           .catch((error) => pushEvent("Room anchor skipped: " + apiError(error)));
       }
 
@@ -431,14 +435,14 @@ export default function App() {
         method: "POST",
         body: JSON.stringify({
           device_ids: orderedAnimated.map((d) => Number(d.id)),
-          effect,
+          effect: resolvedEffect,
           interval_ms: effectSpeed,
           speed: motionSpeed,
           spread: effectSpread,
           direction: effectDirection,
           palette,
-          rgb: hexToRgb(color),
-          brightness,
+          rgb: hexToRgb(resolvedColor),
+          brightness: resolvedBrightness,
         }),
       }, 15000);
 
@@ -498,7 +502,7 @@ export default function App() {
     setColor(hex);
     setBrightness(aiScene.brightness);
     await applyColor(hex, aiScene.brightness);
-    if (aiScene.effect !== "static") window.setTimeout(() => void startEffect(), 250);
+    if (aiScene.effect !== "static") window.setTimeout(() => void startEffect(aiScene.effect, hex, aiScene.brightness), 250);
   }
 
   async function setAiModel(model: string) {
@@ -529,15 +533,55 @@ export default function App() {
     }
   }
 
+  function selectDevice(item: { key: string }) {
+    if (item.key.startsWith("pc:")) {
+      const id = Number(item.key.slice(3));
+      setSelectedPc((ids) => ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]);
+      return;
+    }
+    if (item.key.startsWith("govee:")) {
+      const id = item.key.slice(6);
+      setSelectedGovee((ids) => ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]);
+    }
+  }
+
+  function configureDevice(item: { key: string }) {
+    if (item.key.startsWith("pc:")) {
+      const id = Number(item.key.slice(3));
+      setSelectedPc([id]);
+      setSelectedGovee([]);
+    } else if (item.key.startsWith("govee:")) {
+      setSelectedPc([]);
+      setSelectedGovee([item.key.slice(6)]);
+    }
+    setSection("lighting");
+    notify("Configuring " + (allComponents.find((x) => x.key === item.key)?.name || "device"));
+  }
+
+  function toggleGlobalSync() {
+    const allPc = pcDevices.map((d) => Number(d.id));
+    const allRoom = goveeDevices.map((d) => String(d.device));
+    const allSelected = selectedPc.length === allPc.length && selectedGovee.length === allRoom.length;
+    if (allSelected) {
+      setSelectedPc([]);
+      setSelectedGovee([]);
+      notify("Global sync disabled");
+    } else {
+      setSelectedPc(allPc);
+      setSelectedGovee(allRoom);
+      notify("Global sync enabled for all devices");
+    }
+  }
+
   function deviceImageFor(name: string, type = "") {
     const label = (name + " " + type).toLowerCase();
-    if (label.includes("apex") || label.includes("keyboard")) return "/devices/apex-pro-tkl.png";
-    if (label.includes("aerox") || label.includes("mouse")) return "/devices/aerox-3-wireless.png";
-    if (label.includes("3090") || label.includes("geforce") || label.includes("gpu")) return "/devices/rtx-3090-ti-suprim-x.png";
-    if (label.includes("aura") || label.includes("motherboard")) return "/devices/asus-b560-f.png";
-    if (label.includes("nzxt")) return "/devices/nzxt-rgb-controller.png";
-    if (label.includes("govee") || label.includes("h6008") || label.includes("room")) return "/devices/govee-h6008.png";
-    return "/devices/nzxt-rgb-controller.png";
+    if (label.includes("apex") || label.includes("keyboard")) return "./devices/apex-pro-tkl.png";
+    if (label.includes("aerox") || label.includes("mouse")) return "./devices/aerox-3-wireless.png";
+    if (label.includes("3090") || label.includes("geforce") || label.includes("gpu")) return "./devices/rtx-3090-ti-suprim-x.png";
+    if (label.includes("aura") || label.includes("motherboard")) return "./devices/asus-b560-f.png";
+    if (label.includes("nzxt")) return "./devices/nzxt-rgb-controller.png";
+    if (label.includes("govee") || label.includes("h6008") || label.includes("room")) return "./devices/govee-h6008.png";
+    return "./devices/nzxt-rgb-controller.png";
   }
 
   function categoryFor(type: string, kind: string) {
@@ -560,8 +604,14 @@ export default function App() {
   const localOnline = Boolean(health && health.ok);
   const cloudEnabled = Boolean(runtime.cloud_enabled);
 
-  const visibleComponents = allComponents.filter((item) => deviceFilter === "all" || categoryFor(item.type, item.kind) === deviceFilter);
+  const normalizedSearch = searchQuery.trim().toLowerCase();
+  const visibleComponents = allComponents.filter((item) => {
+    const matchesCategory = deviceFilter === "all" || categoryFor(item.type, item.kind) === deviceFilter;
+    const matchesSearch = !normalizedSearch || (item.name + " " + item.type + " " + item.kind).toLowerCase().includes(normalizedSearch);
+    return matchesCategory && matchesSearch;
+  });
   const activeCount = selectedPc.length + selectedGovee.length;
+  const allDevicesSelected = selectedPc.length === pcDevices.length && selectedGovee.length === goveeDevices.length && (pcDevices.length + goveeDevices.length > 0);
   const connectionHealthy = localOnline && cloudEnabled;
 
   return (
@@ -584,7 +634,7 @@ export default function App() {
         <div className="sidebar-machine">
           <div className="sidebar-connection"><span className={connectionHealthy ? "status-dot online" : "status-dot"} /><b>{connectionHealthy ? "CONNECTED" : "LOCAL"}</b></div>
           <div className="machine-card">
-            <img src="/devices/rtx-3090-ti-suprim-x.png" alt="" />
+            <img src="./devices/rtx-3090-ti-suprim-x.png" alt="" />
             <div><strong>{isDesktop ? "NADIR-PC" : "DifSync PC"}</strong><span><i className={localOnline ? "status-dot online" : "status-dot"} />{localOnline ? "Online" : "Offline"}</span><small>{pcDevices.length} components · {goveeDevices.length} lights</small></div>
           </div>
         </div>
@@ -594,7 +644,7 @@ export default function App() {
         <header className="topbar premium-topbar">
           <div className="command-search">
             {svgIcon("search", "inline-icon")}
-            <input placeholder="Search devices, lighting effects, or settings..." onFocus={(e) => e.currentTarget.select()} />
+            <input value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Search devices, lighting effects, or settings..." onFocus={(e) => e.currentTarget.select()} />
             <kbd>Ctrl K</kbd>
           </div>
           <div className="topbar-actions">
@@ -623,9 +673,9 @@ export default function App() {
                   </div>
                   <div className="hero-device-stack" aria-hidden="true">
                     <div className="hero-glow" />
-                    <img className="hero-gpu" src="/devices/rtx-3090-ti-suprim-x.png" alt="" />
-                    <img className="hero-keyboard" src="/devices/apex-pro-tkl.png" alt="" />
-                    <img className="hero-mouse" src="/devices/aerox-3-wireless.png" alt="" />
+                    <img className="hero-gpu" src="./devices/rtx-3090-ti-suprim-x.png" alt="" />
+                    <img className="hero-keyboard" src="./devices/apex-pro-tkl.png" alt="" />
+                    <img className="hero-mouse" src="./devices/aerox-3-wireless.png" alt="" />
                   </div>
                 </section>
 
@@ -638,7 +688,7 @@ export default function App() {
                     </div>
                     <span className="flow-link"><i /></span>
                     <div className="connection-node">
-                      <div className="connection-art pc-art"><img src="/devices/rtx-3090-ti-suprim-x.png" alt="" /></div>
+                      <div className="connection-art pc-art"><img src="./devices/rtx-3090-ti-suprim-x.png" alt="" /></div>
                       <b>Paired PC</b><small>NADIR-PC</small><i className={localOnline ? "node-ok on" : "node-ok"}>✓</i>
                     </div>
                     <span className="flow-link"><i /></span>
@@ -672,17 +722,14 @@ export default function App() {
                     const selected = pcId !== null ? selectedPc.includes(pcId) : goveeId ? selectedGovee.includes(goveeId) : false;
                     return (
                       <article className={selected ? "product-device-card selected" : "product-device-card"} key={item.key}>
-                        <button className="device-more" aria-label="Device menu">•••</button>
+                        <button className="device-more" aria-label="Open device" title="Open device" onClick={() => configureDevice(item)}>•••</button>
                         <div className="product-image-wrap"><img src={deviceImageFor(item.name, item.type)} alt={item.name} /></div>
                         <div className="device-live"><span className="status-dot online" />Connected</div>
                         <h3>{item.name}</h3>
                         <p>{item.type}</p>
                         <div className="device-card-actions">
-                          <button className={selected ? "device-sync-button active" : "device-sync-button"} onClick={() => {
-                            if (pcId !== null) setSelectedPc((ids) => selected ? ids.filter((x) => x !== pcId) : [...ids, pcId]);
-                            if (goveeId) setSelectedGovee((ids) => selected ? ids.filter((x) => x !== goveeId) : [...ids, goveeId]);
-                          }}>{svgIcon("lighting", "inline-icon")}</button>
-                          <button className="device-configure-button" onClick={() => setSection("devices")}>{svgIcon("settings", "inline-icon")}<span>Configure</span></button>
+                          <button className={selected ? "device-sync-button active" : "device-sync-button"} onClick={() => selectDevice(item)}>{svgIcon("lighting", "inline-icon")}</button>
+                          <button className="device-configure-button" onClick={() => configureDevice(item)}>{svgIcon("settings", "inline-icon")}<span>Configure</span></button>
                         </div>
                       </article>
                     );
@@ -694,7 +741,7 @@ export default function App() {
                 <div className="lighting-strip-head">
                   <div className="lighting-title-icon">{svgIcon("lighting", "lighting-main-icon")}</div>
                   <div><h3>Lighting Control</h3><p>Quickly change your setup's lighting or synchronize every selected device.</p></div>
-                  <button className={cloudEnabled ? "global-sync-toggle on" : "global-sync-toggle"} onClick={toggleCloud} disabled={!isDesktop}>
+                  <button className={allDevicesSelected ? "global-sync-toggle on" : "global-sync-toggle"} onClick={toggleGlobalSync}>
                     <div><b>Global Sync</b><small>Sync lighting across all devices</small></div><span><i /></span>
                   </button>
                 </div>
@@ -707,7 +754,7 @@ export default function App() {
                     ["Breathing","#9B70FF","Subtle fade","pulse"],
                     ["Starlight","#78D7FF","Twinkling","scanner"],
                   ].map(([name, sceneColor, desc, fx]) => (
-                    <button key={name} className={effect === fx ? "scene-tile active" : "scene-tile"} onClick={() => { setEffect(fx); setColor(sceneColor); if (fx === "static") void applyColor(sceneColor, brightness); else void startEffect(); }}>
+                    <button key={name} className={effect === fx ? "scene-tile active" : "scene-tile"} onClick={() => { setEffect(fx); setColor(sceneColor); if (fx === "static") void applyColor(sceneColor, brightness); else void startEffect(fx, sceneColor, brightness); }}>
                       <span className="scene-visual" style={{["--scene" as any]: sceneColor}} />
                       <b>{name}</b><small>{desc}</small>
                     </button>
@@ -735,11 +782,8 @@ export default function App() {
                       <h3>{item.name}</h3><p>{item.kind} · {item.type}</p>
                       <div className="device-info-row"><span>Selected</span><b>{selected ? "Yes" : "No"}</b></div>
                       <div className="device-card-actions">
-                        <button className={selected ? "device-sync-button active" : "device-sync-button"} onClick={() => {
-                          if (pcId !== null) setSelectedPc((ids) => selected ? ids.filter((x) => x !== pcId) : [...ids, pcId]);
-                          if (goveeId) setSelectedGovee((ids) => selected ? ids.filter((x) => x !== goveeId) : [...ids, goveeId]);
-                        }}>{selected ? "Synced" : "Sync"}</button>
-                        <button className="device-configure-button" onClick={() => setSection("lighting")}>{svgIcon("lighting","inline-icon")}<span>Lighting</span></button>
+                        <button className={selected ? "device-sync-button active" : "device-sync-button"} onClick={() => selectDevice(item)}>{selected ? "Synced" : "Sync"}</button>
+                        <button className="device-configure-button" onClick={() => configureDevice(item)}>{svgIcon("lighting","inline-icon")}<span>Lighting</span></button>
                       </div>
                     </article>
                   );
@@ -796,7 +840,7 @@ export default function App() {
                   </div>
                   <div className="direction-row premium-direction"><span>Direction</span><div className="segmented compact"><button className={effectDirection===1?"active":""} onClick={()=>setEffectDirection(1)}>Forward</button><button className={effectDirection===-1?"active":""} onClick={()=>setEffectDirection(-1)}>Reverse</button></div></div>
                   <div className="palette-editor">{effectPalette.map((entry,idx)=><label key={idx}><span>Color {idx+1}</span><input type="color" value={entry} onChange={(e)=>setEffectPalette((p)=>p.map((x,i)=>i===idx?e.target.value.toUpperCase():x))}/></label>)}</div>
-                  <button className="hero-primary full-width" onClick={effect==="static"?()=>applyColor():startEffect}>{svgIcon("play","inline-icon")}<span>Render effect</span></button>
+                  <button className="hero-primary full-width" onClick={effect==="static"?()=>applyColor():()=>startEffect(effect, color, brightness)}>{svgIcon("play","inline-icon")}<span>Render effect</span></button>
                 </section>
                 <section className="control-card render-stage">
                   <div className={"ambient-preview "+effect} style={{["--scene" as any]:color,["--p1" as any]:effectPalette[0],["--p2" as any]:effectPalette[1],["--p3" as any]:effectPalette[2],["--speed" as any]:Math.max(900,3600/Math.max(.1,motionSpeed))+"ms"}}>
@@ -828,7 +872,7 @@ export default function App() {
             <div className="premium-page integrations-page">
               <section className="page-heading"><div><span className="section-kicker">Connected services</span><h1>Integrations</h1><p>Local hardware adapters and cloud providers feeding the same DifSync control plane.</p></div></section>
               <div className="integration-premium-grid">
-                <article className="integration-premium-card active"><div className="integration-art"><img src="/devices/govee-h6008.png" alt=""/></div><div><span className="device-live"><i className="status-dot online"/>Connected</span><h3>Govee</h3><p>{goveeDevices.length} H6008 room lights detected.</p></div><button onClick={()=>setSection("lighting")}>Open lighting</button></article>
+                <article className="integration-premium-card active"><div className="integration-art"><img src="./devices/govee-h6008.png" alt=""/></div><div><span className="device-live"><i className="status-dot online"/>Connected</span><h3>Govee</h3><p>{goveeDevices.length} H6008 room lights detected.</p></div><button onClick={()=>setSection("lighting")}>Open lighting</button></article>
                 <article className="integration-premium-card active"><div className="integration-art native">{svgIcon("devices","integration-big-icon")}</div><div><span className="device-live"><i className="status-dot online"/>Connected</span><h3>Native RGB</h3><p>ASUS, NZXT and SteelSeries local hardware adapters.</p></div><button onClick={()=>setSection("devices")}>View hardware</button></article>
                 <article className={cloudEnabled?"integration-premium-card active":"integration-premium-card"}><div className="integration-art native">{svgIcon("cloud","integration-big-icon")}</div><div><span className="device-live"><i className={cloudEnabled?"status-dot online":"status-dot"}/>{cloudEnabled?"Connected":"Disabled"}</span><h3>DifSync Cloud</h3><p>Secure command relay, web dashboard and MCP access.</p></div><button onClick={toggleCloud}>{cloudEnabled?"Disable":"Enable"}</button></article>
                 <article className="integration-premium-card"><div className="integration-art native">{svgIcon("ai","integration-big-icon")}</div><div><span className="device-live"><i className={aiStatus.online?"status-dot online":"status-dot"}/>{aiStatus.online?"Local AI ready":"Fallback available"}</span><h3>AI Director</h3><p>{aiStatus.online?aiStatus.models.length+" Ollama models available":"Deterministic local scene parser active."}</p></div><button onClick={()=>setSection("sync")}>Open Studio</button></article>
