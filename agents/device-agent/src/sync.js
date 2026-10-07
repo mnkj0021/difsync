@@ -5,6 +5,7 @@ const LOCAL_URL = String(process.env.DIFSYNC_SYNC_LOCAL_URL || "http://127.0.0.1
 const INVENTORY_TTL_MS = Math.max(2000, Number(process.env.DIFSYNC_SYNC_INVENTORY_TTL_MS || 10000));
 
 let cached = { at: 0, value: { sync: { online: false }, pc_devices: [], govee_devices: [] } };
+let refreshPromise = null;
 
 function findSyncRoot() {
   const configured = String(process.env.DIFSYNC_SYNC_ROOT || "").trim();
@@ -60,10 +61,7 @@ async function requestJson(route, options = {}, timeoutMs = 2500) {
   return data;
 }
 
-export async function syncInventory(force = false) {
-  const now = Date.now();
-  if (!force && now - cached.at < INVENTORY_TTL_MS) return cached.value;
-
+async function refreshInventory() {
   const root = findSyncRoot();
   const value = {
     sync: {
@@ -77,7 +75,7 @@ export async function syncInventory(force = false) {
   };
 
   try {
-    const health = await requestJson("/api/health", {}, 8000);
+    const health = await requestJson("/api/health", {}, 25000);
     value.sync = {
       ...value.sync,
       online: true,
@@ -85,8 +83,8 @@ export async function syncInventory(force = false) {
     };
 
     const [pc, room] = await Promise.allSettled([
-      requestJson("/api/openrgb/devices", {}, 12000),
-      requestJson("/api/govee/devices", {}, 12000)
+      requestJson("/api/openrgb/devices", {}, 25000),
+      requestJson("/api/govee/devices", {}, 25000)
     ]);
 
     if (pc.status === "fulfilled") value.pc_devices = Array.isArray(pc.value.devices) ? pc.value.devices : [];
@@ -95,8 +93,18 @@ export async function syncInventory(force = false) {
     value.sync.error = String(error?.message || error).slice(0, 240);
   }
 
-  cached = { at: now, value };
+  cached = { at: Date.now(), value };
   return value;
+}
+
+export async function syncInventory(force = false) {
+  const stale = Date.now() - cached.at >= INVENTORY_TTL_MS;
+  if ((force || stale) && !refreshPromise) {
+    refreshPromise = refreshInventory().finally(() => { refreshPromise = null; });
+  }
+
+  if (force && refreshPromise) return await refreshPromise;
+  return cached.value;
 }
 
 export async function executeSyncTarget(target, payload = {}) {
