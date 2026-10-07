@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { DifSyncRealtimeClient, hexToRgb, rgbToHex } from "./difsyncClient";
 
-type Section = "studio" | "devices" | "effects" | "layout" | "ai" | "settings";
+type Section = "overview" | "devices" | "lighting" | "sync" | "integrations" | "settings";
 type RGB = [number, number, number];
 
 type PcDevice = {
@@ -94,11 +94,11 @@ function apiError(error: unknown) {
 
 function svgIcon(name: string, className = "") {
   const paths: Record<string, string> = {
-    studio: "M4 7h16M7 4v6M17 4v6M4 17h16M10 14v6M14 14v6",
+    overview: "M3 10.8 12 3l9 7.8v9.7a.5.5 0 01-.5.5H15v-6H9v6H3.5a.5.5 0 01-.5-.5z",
     devices: "M4 5h16v11H4zM8 20h8M12 16v4",
-    effects: "M12 2l2.4 5.2L20 9l-5 3 1.4 5.7L12 15l-4.4 2.7L9 12 4 9l5.6-1.8z",
-    layout: "M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z",
-    ai: "M12 3a5 5 0 015 5v1a4 4 0 012 7v2H5v-2a4 4 0 012-7V8a5 5 0 015-5zM9 12h.01M15 12h.01M9 16h6",
+    lighting: "M9 18h6M10 22h4M8.5 14.5A7 7 0 1115.5 14.5c-.9.8-1.5 1.8-1.5 3.5h-4c0-1.7-.6-2.7-1.5-3.5z",
+    sync: "M4 7h16M7 4v6M17 4v6M4 17h16M10 14v6M14 14v6",
+    integrations: "M8 3v6M16 3v6M6 9h12v2a6 6 0 01-6 6v4M9 21h6",
     settings: "M12 8a4 4 0 100 8 4 4 0 000-8zm8 4l2-1-2-3-2 .5-1.5-1.5.5-2-3-2-1 2-2 .5L6 6 4 4 2 7l1 2-.5 2L0 12l2 3 2-.5L5.5 16 5 18l3 2 1-2 2 .5 1 2.5 3-1 .5-2 2-1.5 2 .5 2-3-2-1 .5-2L19 9l1-1z",
     sun: "M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6 7 7M17 17l1.4 1.4M18.4 5.6 17 7M7 17l-1.4 1.4M16 12a4 4 0 11-8 0 4 4 0 018 0z",
     moon: "M20 15.5A8 8 0 118.5 4 6.5 6.5 0 0020 15.5z",
@@ -144,7 +144,7 @@ function BrandMark() {
 
 export default function App() {
   const isDesktop = desktopAvailable();
-  const [section, setSection] = useState<Section>("studio");
+  const [section, setSection] = useState<Section>("overview");
   const [theme, setTheme] = useState<"dark" | "light">(initialTheme);
   const [health, setHealth] = useState<Record<string, any> | null>(null);
   const [pcDevices, setPcDevices] = useState<PcDevice[]>([]);
@@ -175,6 +175,7 @@ export default function App() {
   const [toast, setToast] = useState("");
   const [eventFeed, setEventFeed] = useState<string[]>([]);
   const [rendererTick, setRendererTick] = useState(0);
+  const [deviceFilter, setDeviceFilter] = useState<"all" | "peripherals" | "components" | "lighting">("all");
   const toastTimer = useRef<number | null>(null);
 
   const client = useMemo(
@@ -535,26 +536,50 @@ export default function App() {
     }
   }
 
+  function deviceImageFor(name: string, type = "") {
+    const label = (name + " " + type).toLowerCase();
+    if (label.includes("apex") || label.includes("keyboard")) return "/devices/apex-pro-tkl.png";
+    if (label.includes("aerox") || label.includes("mouse")) return "/devices/aerox-3-wireless.png";
+    if (label.includes("3090") || label.includes("geforce") || label.includes("gpu")) return "/devices/rtx-3090-ti-suprim-x.png";
+    if (label.includes("aura") || label.includes("motherboard")) return "/devices/asus-b560-f.png";
+    if (label.includes("nzxt")) return "/devices/nzxt-rgb-controller.png";
+    if (label.includes("govee") || label.includes("h6008") || label.includes("room")) return "/devices/govee-h6008.png";
+    return "/devices/nzxt-rgb-controller.png";
+  }
+
+  function categoryFor(type: string, kind: string) {
+    const key = String(type || "").toUpperCase();
+    if (kind === "Room") return "lighting";
+    if (key.includes("KEYBOARD") || key.includes("MOUSE")) return "peripherals";
+    if (key.includes("GPU") || key.includes("MOTHERBOARD") || key.includes("DRAM")) return "components";
+    return "lighting";
+  }
+
   const nav: Array<{ id: Section; label: string }> = [
-    { id: "studio", label: "Studio" },
+    { id: "overview", label: "Overview" },
     { id: "devices", label: "Devices" },
-    { id: "effects", label: "Effects" },
-    { id: "layout", label: "Layout" },
-    { id: "ai", label: "AI Director" },
+    { id: "lighting", label: "Lighting" },
+    { id: "sync", label: "Sync Studio" },
+    { id: "integrations", label: "Integrations" },
     { id: "settings", label: "Settings" },
   ];
 
   const localOnline = Boolean(health && health.ok);
   const cloudEnabled = Boolean(runtime.cloud_enabled);
 
+  const visibleComponents = allComponents.filter((item) => deviceFilter === "all" || categoryFor(item.type, item.kind) === deviceFilter);
+  const activeCount = selectedPc.length + selectedGovee.length;
+  const connectionHealthy = localOnline && cloudEnabled;
+
   return (
-    <div className="app-shell">
-      <aside className="sidebar">
-        <div className="brand">
+    <div className="app-shell premium-shell">
+      <aside className="sidebar premium-sidebar">
+        <div className="brand premium-brand">
           <div className="brand-mark"><BrandMark /></div>
-          <div><strong>DifSync</strong><small>Lighting Studio</small></div>
+          <div><strong>DifSync</strong><small>Control Platform</small></div>
         </div>
-        <nav>
+
+        <nav className="premium-nav">
           {nav.map((item) => (
             <button key={item.id} className={section === item.id ? "nav-item active" : "nav-item"} onClick={() => setSection(item.id)}>
               {icon(item.id)}
@@ -562,206 +587,256 @@ export default function App() {
             </button>
           ))}
         </nav>
-        <div className="sidebar-foot">
-          <div className="service-row">
-            <span className={localOnline ? "status-dot online" : "status-dot"} />
-            <div><strong>{localOnline ? "Engine online" : "Engine offline"}</strong><small>{health?.pc_rgb_backend || "Local service"}</small></div>
+
+        <div className="sidebar-machine">
+          <div className="sidebar-connection"><span className={connectionHealthy ? "status-dot online" : "status-dot"} /><b>{connectionHealthy ? "CONNECTED" : "LOCAL"}</b></div>
+          <div className="machine-card">
+            <img src="/devices/rtx-3090-ti-suprim-x.png" alt="" />
+            <div><strong>{isDesktop ? "NADIR-PC" : "DifSync PC"}</strong><span><i className={localOnline ? "status-dot online" : "status-dot"} />{localOnline ? "Online" : "Offline"}</span><small>{pcDevices.length} components · {goveeDevices.length} lights</small></div>
           </div>
-          <button className="quiet-btn icon-action" onClick={ensureRuntime}>{svgIcon("refresh", "inline-icon")}<span>Restart / reconnect</span></button>
         </div>
       </aside>
 
-      <div className="workspace">
-        <header className="topbar">
-          <div>
-            <h1>{nav.find((x) => x.id === section)?.label}</h1>
-            <p>{section === "studio" ? "One control surface for the whole setup." : "Configure DifSync without leaving the app."}</p>
+      <div className="workspace premium-workspace">
+        <header className="topbar premium-topbar">
+          <div className="command-search">
+            {svgIcon("search", "inline-icon")}
+            <input placeholder="Search devices, lighting effects, or settings..." onFocus={(e) => e.currentTarget.select()} />
+            <kbd>Ctrl K</kbd>
           </div>
           <div className="topbar-actions">
-            <button className={cloudEnabled ? "remote-toggle on" : "remote-toggle"} onClick={toggleCloud} disabled={!isDesktop || busy === "cloud"}>
-              <span className="toggle-track"><span /></span>
-              <span><b>{cloudEnabled ? "Remote On" : "Remote Off"}</b><small>difsync.com</small></span>
-            </button>
-            <button className="theme-btn icon-action" onClick={() => setTheme(theme === "dark" ? "light" : "dark")}>{svgIcon(theme === "dark" ? "sun" : "moon", "inline-icon")}<span>{theme === "dark" ? "Light" : "Dark"} mode</span></button>
+            <div className={connectionHealthy ? "system-health healthy" : "system-health"}>
+              <span>{connectionHealthy ? "✓" : "•"}</span>
+              <div><b>{connectionHealthy ? "All Systems Synced" : "Local Control"}</b><small>{activeCount} devices selected</small></div>
+            </div>
+            <button className="theme-btn icon-action" onClick={() => setTheme(theme === "dark" ? "light" : "dark")}>{svgIcon(theme === "dark" ? "sun" : "moon", "inline-icon")}</button>
           </div>
         </header>
 
-        <main className="content">
-          {section === "studio" && (
-            <div className="studio-grid">
-              <section className="hero-panel">
-                <div className="section-kicker">Master scene</div>
-                <div className="hero-head">
-                  <div><h2>Color the entire setup</h2><p>{selectedPc.length} PC devices and {selectedGovee.length} room lights selected.</p></div>
-                  <div className="master-swatch" style={{ background: color }} />
-                </div>
-                <div className="color-stage">
-                  <input className="color-input" type="color" value={color} onChange={(e) => setColor(e.target.value.toUpperCase())} />
-                  <div className="color-copy">
-                    <label>Master color</label>
-                    <input value={color} onChange={(e) => /^#[0-9a-fA-F]{0,6}$/.test(e.target.value) && setColor(e.target.value.toUpperCase())} />
-                    <span>{hexToRgb(color).join("  /  ")}</span>
+        <main className="content premium-content">
+          {section === "overview" && (
+            <div className="overview-page">
+              <div className="overview-hero-row">
+                <section className="welcome-card">
+                  <div className="welcome-copy">
+                    <span className="eyebrow-chip">DIFSYNC CONTROL PLATFORM</span>
+                    <h1>Welcome to <em>DifSync</em></h1>
+                    <h2>Unify your setup. Sync your world.</h2>
+                    <p>Control your PC hardware, room lighting, scenes and integrations from one polished control surface.</p>
+                    <div className="welcome-actions">
+                      <button className="hero-primary" onClick={() => setSection("devices")}>{svgIcon("plus", "inline-icon")}<span>Add / discover device</span></button>
+                      <button className="hero-secondary" onClick={() => setSection("sync")}>{svgIcon("effects", "inline-icon")}<span>Explore Sync Studio</span></button>
+                    </div>
+                  </div>
+                  <div className="hero-device-stack" aria-hidden="true">
+                    <div className="hero-glow" />
+                    <img className="hero-gpu" src="/devices/rtx-3090-ti-suprim-x.png" alt="" />
+                    <img className="hero-keyboard" src="/devices/apex-pro-tkl.png" alt="" />
+                    <img className="hero-mouse" src="/devices/aerox-3-wireless.png" alt="" />
+                  </div>
+                </section>
+
+                <section className="connection-card">
+                  <div className="panel-title-row"><div><span className="section-kicker">Connection</span><h3>PC Connection</h3></div><span className={connectionHealthy ? "health-pill healthy" : "health-pill"}>{connectionHealthy ? "Healthy" : "Local only"}</span></div>
+                  <div className="connection-flow-pro">
+                    <div className="connection-node">
+                      <div className="connection-art"><BrandMark /></div>
+                      <b>DifSync App</b><small>This device</small><i className={localOnline ? "node-ok on" : "node-ok"}>✓</i>
+                    </div>
+                    <span className="flow-link"><i /></span>
+                    <div className="connection-node">
+                      <div className="connection-art pc-art"><img src="/devices/rtx-3090-ti-suprim-x.png" alt="" /></div>
+                      <b>Paired PC</b><small>NADIR-PC</small><i className={localOnline ? "node-ok on" : "node-ok"}>✓</i>
+                    </div>
+                    <span className="flow-link"><i /></span>
+                    <div className="connection-node">
+                      <div className="connection-art cloud-art">{svgIcon("cloud", "cloud-big")}</div>
+                      <b>DifSync Cloud</b><small>Dashboard + MCP</small><i className={cloudEnabled ? "node-ok on" : "node-ok"}>✓</i>
+                    </div>
+                  </div>
+                  <div className={connectionHealthy ? "connection-status healthy" : "connection-status"}><span>{connectionHealthy ? "✓" : "•"}</span><div><b>{connectionHealthy ? "Connected to server" : "Local mode active"}</b><small>{connectionHealthy ? "Devices, settings and lighting are synced through your paired PC." : "Lighting remains available locally."}</small></div></div>
+                </section>
+              </div>
+
+              <section className="devices-section">
+                <div className="device-section-head">
+                  <div><span className="section-kicker">Hardware</span><h2>Your Devices <small>({allComponents.length})</small></h2></div>
+                  <div className="device-filter-row">
+                    {(["all","peripherals","components","lighting"] as const).map((filter) => (
+                      <button key={filter} className={deviceFilter === filter ? "filter-chip active" : "filter-chip"} onClick={() => setDeviceFilter(filter)}>
+                        {filter === "all" ? "All" : filter[0].toUpperCase() + filter.slice(1)}
+                        <span>{filter === "all" ? allComponents.length : allComponents.filter((x) => categoryFor(x.type, x.kind) === filter).length}</span>
+                      </button>
+                    ))}
+                    <button className="add-device-button" onClick={() => refreshAll(false)}>{svgIcon("plus", "inline-icon")}<span>Discover</span></button>
                   </div>
                 </div>
-                <div className="slider-block">
-                  <div className="slider-label"><span>Brightness</span><b>{brightness}%</b></div>
-                  <input type="range" min="0" max="100" value={brightness} onChange={(e) => setBrightness(Number(e.target.value))} />
+
+                <div className="product-device-grid">
+                  {visibleComponents.map((item) => {
+                    const pcId = item.key.startsWith("pc:") ? Number(item.key.slice(3)) : null;
+                    const goveeId = item.key.startsWith("govee:") ? item.key.slice(6) : null;
+                    const selected = pcId !== null ? selectedPc.includes(pcId) : goveeId ? selectedGovee.includes(goveeId) : false;
+                    return (
+                      <article className={selected ? "product-device-card selected" : "product-device-card"} key={item.key}>
+                        <button className="device-more" aria-label="Device menu">•••</button>
+                        <div className="product-image-wrap"><img src={deviceImageFor(item.name, item.type)} alt={item.name} /></div>
+                        <div className="device-live"><span className="status-dot online" />Connected</div>
+                        <h3>{item.name}</h3>
+                        <p>{item.type}</p>
+                        <div className="device-card-actions">
+                          <button className={selected ? "device-sync-button active" : "device-sync-button"} onClick={() => {
+                            if (pcId !== null) setSelectedPc((ids) => selected ? ids.filter((x) => x !== pcId) : [...ids, pcId]);
+                            if (goveeId) setSelectedGovee((ids) => selected ? ids.filter((x) => x !== goveeId) : [...ids, goveeId]);
+                          }}>{svgIcon("lighting", "inline-icon")}</button>
+                          <button className="device-configure-button" onClick={() => setSection("devices")}>{svgIcon("settings", "inline-icon")}<span>Configure</span></button>
+                        </div>
+                      </article>
+                    );
+                  })}
                 </div>
-                <div className="action-row">
-                  <button className="primary-action icon-action" onClick={() => applyColor()} disabled={busy === "apply"}>{svgIcon("play", "inline-icon")}<span>Apply scene</span></button>
-                  <button className="secondary-action icon-action" onClick={stopEffects}>{svgIcon("stop", "inline-icon")}<span>Stop animation</span></button>
+              </section>
+
+              <section className="lighting-strip">
+                <div className="lighting-strip-head">
+                  <div className="lighting-title-icon">{svgIcon("lighting", "lighting-main-icon")}</div>
+                  <div><h3>Lighting Control</h3><p>Quickly change your setup's lighting or synchronize every selected device.</p></div>
+                  <button className={cloudEnabled ? "global-sync-toggle on" : "global-sync-toggle"} onClick={toggleCloud} disabled={!isDesktop}>
+                    <div><b>Global Sync</b><small>Sync lighting across all devices</small></div><span><i /></span>
+                  </button>
                 </div>
-                <div className="preset-row">
-                  {presetScenes.map((preset) => (
-                    <button key={preset.name} className="preset-chip" onClick={() => { setColor(preset.color); setBrightness(preset.brightness); void applyColor(preset.color, preset.brightness); }}>
-                      <span style={{ background: preset.color }} />{preset.name}
+                <div className="scene-grid">
+                  {[
+                    ["Aurora","#5CCBFF","Calm & colorful","aurora"],
+                    ["Pulse","#FF5F69","Reactive","pulse"],
+                    ["Static","#FFD25F","Solid color","static"],
+                    ["Wave","#42B8FF","Smooth flow","wave"],
+                    ["Breathing","#9B70FF","Subtle fade","pulse"],
+                    ["Starlight","#78D7FF","Twinkling","scanner"],
+                  ].map(([name, sceneColor, desc, fx]) => (
+                    <button key={name} className={effect === fx ? "scene-tile active" : "scene-tile"} onClick={() => { setEffect(fx); setColor(sceneColor); if (fx === "static") void applyColor(sceneColor, brightness); else void startEffect(); }}>
+                      <span className="scene-visual" style={{["--scene" as any]: sceneColor}} />
+                      <b>{name}</b><small>{desc}</small>
                     </button>
                   ))}
                 </div>
-              </section>
-
-              <section className="renderer-panel">
-                <div className="panel-title-row"><div><span className="section-kicker">Live renderer</span><h3>Physical flow</h3></div><span className="fps-badge">Preview</span></div>
-                <div className={"renderer " + effect} style={{ ["--scene" as any]: color, ["--speed" as any]: Math.max(900, 3600 / Math.max(0.1, motionSpeed)) + "ms" }}>
-                  <div className="renderer-glow" />
-                  <div className="renderer-path">
-                    {allComponents.map((item, index) => {
-                      const paletteColor = effectPalette[(index + Math.floor(rendererTick / 5)) % effectPalette.length] || color;
-                      return (
-                        <div className="render-node" key={item.key}>
-                          <div className="node-light" style={{ background: effect === "static" ? color : paletteColor }} />
-                          <strong>{item.name}</strong>
-                          <small>{item.kind} · {item.type}</small>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-                <div className="renderer-meta">
-                  <div><span>Flow</span><b>{runtime.layout_direction === "reverse" ? "Last → First" : "First → Last"}</b></div>
-                  <div><span>Effect</span><b>{effect}</b></div>
-                  <div><span>Clock</span><b>Phase locked</b></div><div><span>Render</span><b>{Math.round(1000 / effectSpeed)} FPS</b></div>
-                </div>
-              </section>
-
-              <section className="quick-panel">
-                <div className="panel-title-row"><div><span className="section-kicker">System</span><h3>Device health</h3></div><button className="text-btn icon-action" onClick={() => refreshAll(false)}>{svgIcon("refresh", "inline-icon")}<span>Refresh</span></button></div>
-                <div className="stat-grid">
-                  <div><span>PC devices</span><b>{pcDevices.length}</b></div>
-                  <div><span>Room lights</span><b>{goveeDevices.length}</b></div>
-                  <div><span>Remote</span><b>{cloudEnabled ? "Allowed" : "Blocked"}</b></div>
-                  <div><span>AI</span><b>{aiStatus.online ? "Ollama" : "Local fallback"}</b></div>
-                </div>
-                <div className="event-feed">{eventFeed.length ? eventFeed.map((row, i) => <div key={row + i}>{row}</div>) : <div className="muted">No events yet.</div>}</div>
               </section>
             </div>
           )}
 
           {section === "devices" && (
-            <div className="page-stack">
-              <section className="page-intro"><span className="section-kicker">Hardware</span><h2>Devices</h2><p>Select exactly what participates in master scenes. DifSync keeps the low-level driver visible so you can see what actually controls each component.</p></section>
-              <div className="device-grid">
-                {pcDevices.map((device) => {
-                  const selected = selectedPc.includes(Number(device.id));
-                  const deviceColor = device.avg_rgb && device.avg_rgb.length ? rgbToHex(rgbArray(device.avg_rgb)) : color;
+            <div className="page-stack premium-page">
+              <section className="page-heading">
+                <div><span className="section-kicker">Hardware inventory</span><h1>Devices</h1><p>Real detected hardware from this PC. Select devices for global scenes or configure them individually.</p></div>
+                <button className="hero-primary" onClick={() => refreshAll(false)}>{svgIcon("refresh", "inline-icon")}<span>Refresh hardware</span></button>
+              </section>
+              <div className="product-device-grid expanded">
+                {allComponents.map((item) => {
+                  const pcId = item.key.startsWith("pc:") ? Number(item.key.slice(3)) : null;
+                  const goveeId = item.key.startsWith("govee:") ? item.key.slice(6) : null;
+                  const selected = pcId !== null ? selectedPc.includes(pcId) : goveeId ? selectedGovee.includes(goveeId) : false;
                   return (
-                    <article className={selected ? "device-card selected" : "device-card"} key={device.id}>
-                      <button className="device-select" onClick={() => setSelectedPc((ids) => selected ? ids.filter((x) => x !== Number(device.id)) : [...ids, Number(device.id)])}><span className="check">{selected ? "✓" : ""}</span></button>
-                      <div className="device-orb" style={{ background: deviceColor }}><span className="device-icon-shell">{deviceIcon(device.type, device.name)}</span></div>
-                      <div className="device-copy"><span className="device-kind">{displayDeviceType(device.type)}</span><h3>{device.name}</h3><p>{device.driver || device.backend || "RGB device"}</p></div>
-                      <div className="device-badges"><span>{device.led_count || 0} LEDs</span><span>{device.per_led_supported === false ? "Static" : "Per LED"}</span></div>
+                    <article className={selected ? "product-device-card selected" : "product-device-card"} key={item.key}>
+                      <div className="product-image-wrap large"><img src={deviceImageFor(item.name,item.type)} alt={item.name} /></div>
+                      <div className="device-live"><span className="status-dot online" />Connected</div>
+                      <h3>{item.name}</h3><p>{item.kind} · {item.type}</p>
+                      <div className="device-info-row"><span>Selected</span><b>{selected ? "Yes" : "No"}</b></div>
+                      <div className="device-card-actions">
+                        <button className={selected ? "device-sync-button active" : "device-sync-button"} onClick={() => {
+                          if (pcId !== null) setSelectedPc((ids) => selected ? ids.filter((x) => x !== pcId) : [...ids, pcId]);
+                          if (goveeId) setSelectedGovee((ids) => selected ? ids.filter((x) => x !== goveeId) : [...ids, goveeId]);
+                        }}>{selected ? "Synced" : "Sync"}</button>
+                        <button className="device-configure-button" onClick={() => setSection("lighting")}>{svgIcon("lighting","inline-icon")}<span>Lighting</span></button>
+                      </div>
                     </article>
                   );
                 })}
-                {goveeDevices.map((device) => {
-                  const gid = String(device.device);
-                  const selected = selectedGovee.includes(gid);
-                  return (
-                    <article className={selected ? "device-card selected" : "device-card"} key={gid}>
-                      <button className="device-select" onClick={() => setSelectedGovee((ids) => selected ? ids.filter((x) => x !== gid) : [...ids, gid])}><span className="check">{selected ? "✓" : ""}</span></button>
-                      <div className="device-orb room" style={{ background: color }}><span className="device-icon-shell">{svgIcon("bulb", "device-type-icon")}</span></div>
-                      <div className="device-copy"><span className="device-kind">Room light</span><h3>{device.deviceName || device.name || "Govee"}</h3><p>{device.model || gid}</p></div>
-                      <div className="device-badges"><span>Cloud / LAN</span><span>Whole light</span></div>
-                    </article>
-                  );
-                })}
               </div>
             </div>
           )}
 
-          {section === "effects" && (
-            <div className="effects-layout">
-              <section className="controls-panel">
-                <span className="section-kicker">Phase-locked animation engine</span><h2>Effects</h2><p>Every component now samples the same monotonic clock. Fast devices render smoothly while slower protocols stay on the same phase instead of dragging the entire setup down.</p>
-                <div className="sync-banner"><span className="status-dot online" /><div><b>Global sync clock</b><small>One timeline · physical order aware · adaptive device pacing</small></div></div>
-                <div className="segmented effects-list">{["static", "gradient", "wave", "comet", "scanner", "aurora", "pulse", "chase", "rainbow"].map((name) => <button key={name} className={effect === name ? "active" : ""} onClick={() => setEffect(name)}>{name}</button>)}</div>
-                <div className="motion-grid">
-                  <div className="field-row"><label>Render interval <b>{effectSpeed} ms</b></label><input type="range" min="30" max="120" step="1" value={effectSpeed} onChange={(e) => setEffectSpeed(Number(e.target.value))} /></div>
-                  <div className="field-row"><label>Motion speed <b>{motionSpeed.toFixed(2)}×</b></label><input type="range" min="0.10" max="1.80" step="0.05" value={motionSpeed} onChange={(e) => setMotionSpeed(Number(e.target.value))} /></div>
-                  <div className="field-row"><label>Spatial spread <b>{effectSpread.toFixed(1)}×</b></label><input type="range" min="0.4" max="4" step="0.1" value={effectSpread} onChange={(e) => setEffectSpread(Number(e.target.value))} /></div>
-                </div>
-                <div className="direction-row"><span>Travel direction</span><div className="segmented compact"><button className={effectDirection === 1 ? "active" : ""} onClick={() => setEffectDirection(1)}>Forward</button><button className={effectDirection === -1 ? "active" : ""} onClick={() => setEffectDirection(-1)}>Reverse</button></div></div>
-                <div className="palette-editor">{effectPalette.map((entry, idx) => <label key={idx}><span>Color {idx + 1}</span><input type="color" value={entry} onChange={(e) => setEffectPalette((p) => p.map((x, i) => i === idx ? e.target.value.toUpperCase() : x))} /></label>)}</div>
-                <div className="action-row"><button className="primary-action" onClick={effect === "static" ? () => applyColor() : startEffect}>Render effect</button><button className="secondary-action" onClick={stopEffects}>Stop</button></div>
+          {section === "lighting" && (
+            <div className="lighting-page premium-page">
+              <section className="page-heading">
+                <div><span className="section-kicker">Master lighting</span><h1>Lighting</h1><p>One control surface for the whole setup, from PC RGB to your Govee room lights.</p></div>
+                <div className="master-color-pill"><span style={{background:color}}/><b>{color}</b></div>
               </section>
-              <section className="large-render-panel">
-                <div className={"ambient-preview " + effect} style={{ ["--scene" as any]: color, ["--p1" as any]: effectPalette[0], ["--p2" as any]: effectPalette[1], ["--p3" as any]: effectPalette[2], ["--speed" as any]: Math.max(900, 3600 / Math.max(0.1, motionSpeed)) + "ms" }}>
-                  <div className="beam b1" /><div className="beam b2" /><div className="beam b3" />
-                  <div className="preview-center"><span>DIFSYNC RENDER</span><strong>{effect.toUpperCase()}</strong><small>{animatePcRows.length} animated devices · {selectedPcRows.length - animatePcRows.length} static devices</small></div>
+              <div className="lighting-layout">
+                <section className="control-card master-light-card">
+                  <div className="panel-title-row"><div><span className="section-kicker">Master scene</span><h3>Color & brightness</h3></div><span className="health-pill healthy">{activeCount} selected</span></div>
+                  <div className="master-color-control">
+                    <input type="color" value={color} onChange={(e)=>setColor(e.target.value.toUpperCase())}/>
+                    <div><span>Current color</span><b>{color}</b><small>{hexToRgb(color).join(" / ")}</small></div>
+                  </div>
+                  <div className="slider-block"><div className="slider-label"><span>Brightness</span><b>{brightness}%</b></div><input type="range" min="0" max="100" value={brightness} onChange={(e)=>setBrightness(Number(e.target.value))}/></div>
+                  <button className="hero-primary full-width" onClick={()=>applyColor()}>{svgIcon("play","inline-icon")}<span>Apply to selected devices</span></button>
+                </section>
+                <section className="control-card selected-preview">
+                  <div className="panel-title-row"><div><span className="section-kicker">Live topology</span><h3>Selected devices</h3></div></div>
+                  <div className="selected-device-list">
+                    {allComponents.filter((item)=>selectedPc.includes(Number(item.key.slice(3))) || selectedGovee.includes(item.key.slice(6))).map((item)=>(
+                      <div key={item.key}><img src={deviceImageFor(item.name,item.type)} alt=""/><div><b>{item.name}</b><small>{item.type}</small></div><span style={{background:color}}/></div>
+                    ))}
+                  </div>
+                </section>
+              </div>
+              <section className="control-card scene-library">
+                <div className="panel-title-row"><div><span className="section-kicker">Scenes</span><h3>Scene library</h3></div><button className="text-btn" onClick={stopEffects}>Stop effects</button></div>
+                <div className="scene-grid large">
+                  {presetScenes.map((preset)=><button key={preset.name} className="scene-tile" onClick={()=>{setColor(preset.color);setBrightness(preset.brightness);void applyColor(preset.color,preset.brightness)}}><span className="scene-visual" style={{["--scene" as any]:preset.color}}/><b>{preset.name}</b><small>{preset.brightness}% brightness</small></button>)}
                 </div>
               </section>
             </div>
           )}
 
-          {section === "layout" && (
-            <div className="layout-page">
-              <section className="page-intro"><span className="section-kicker">Topology</span><h2>Physical light order</h2><p>Put components in the order light should travel through the real setup. Effects and AI scenes use this as their spatial hierarchy.</p></section>
-              <div className="layout-toolbar">
-                <div className="segmented compact"><button className={runtime.layout_direction === "forward" ? "active" : ""} onClick={() => setRuntime((s) => ({ ...s, layout_direction: "forward" }))}>First → Last</button><button className={runtime.layout_direction === "reverse" ? "active" : ""} onClick={() => setRuntime((s) => ({ ...s, layout_direction: "reverse" }))}>Last → First</button></div>
-                <button className="primary-action slim" onClick={() => saveLayout(layoutKeys, runtime.layout_direction)}>Save order</button>
+          {section === "sync" && (
+            <div className="sync-page premium-page">
+              <section className="page-heading"><div><span className="section-kicker">Phase-locked renderer</span><h1>Sync Studio</h1><p>Build synchronized effects across hardware with one shared timeline and physical device order.</p></div><button className="hero-secondary" onClick={stopEffects}>{svgIcon("stop","inline-icon")}<span>Stop renderer</span></button></section>
+              <div className="sync-studio-grid">
+                <section className="control-card effect-builder">
+                  <span className="section-kicker">Effect</span><h3>{effect.toUpperCase()}</h3>
+                  <div className="segmented effects-list">{["static","gradient","wave","comet","scanner","aurora","pulse","chase","rainbow"].map((name)=><button key={name} className={effect===name?"active":""} onClick={()=>setEffect(name)}>{name}</button>)}</div>
+                  <div className="motion-grid">
+                    <div className="field-row"><label>Render interval <b>{effectSpeed} ms</b></label><input type="range" min="30" max="120" value={effectSpeed} onChange={(e)=>setEffectSpeed(Number(e.target.value))}/></div>
+                    <div className="field-row"><label>Motion speed <b>{motionSpeed.toFixed(2)}×</b></label><input type="range" min="0.1" max="1.8" step=".05" value={motionSpeed} onChange={(e)=>setMotionSpeed(Number(e.target.value))}/></div>
+                    <div className="field-row"><label>Spread <b>{effectSpread.toFixed(1)}×</b></label><input type="range" min=".4" max="4" step=".1" value={effectSpread} onChange={(e)=>setEffectSpread(Number(e.target.value))}/></div>
+                  </div>
+                  <div className="palette-editor">{effectPalette.map((entry,idx)=><label key={idx}><span>Color {idx+1}</span><input type="color" value={entry} onChange={(e)=>setEffectPalette((p)=>p.map((x,i)=>i===idx?e.target.value.toUpperCase():x))}/></label>)}</div>
+                  <button className="hero-primary full-width" onClick={effect==="static"?()=>applyColor():startEffect}>{svgIcon("play","inline-icon")}<span>Render effect</span></button>
+                </section>
+                <section className="control-card render-stage">
+                  <div className={"ambient-preview "+effect} style={{["--scene" as any]:color,["--p1" as any]:effectPalette[0],["--p2" as any]:effectPalette[1],["--p3" as any]:effectPalette[2],["--speed" as any]:Math.max(900,3600/Math.max(.1,motionSpeed))+"ms"}}>
+                    <div className="beam b1"/><div className="beam b2"/><div className="beam b3"/>
+                    <div className="preview-center"><span>DIFSYNC RENDER</span><strong>{effect.toUpperCase()}</strong><small>{animatePcRows.length} animated · {selectedGovee.length} room lights</small></div>
+                  </div>
+                </section>
               </div>
-              <div className="layout-list">
-                {layoutKeys.map((key, index) => {
-                  const item = allComponents.find((x) => x.key === key);
-                  if (!item) return null;
-                  return <div className="layout-item" key={key}>
-                    <div className="order-index">{String(index + 1).padStart(2, "0")}</div>
-                    <div className="flow-line"><span style={{ background: effectPalette[index % effectPalette.length] || color }} /></div>
-                    <div className="layout-copy"><strong>{item.name}</strong><span>{item.kind} · {item.type}</span></div>
-                    <div className="layout-actions"><button aria-label="Move up" onClick={() => moveLayout(index, -1)} disabled={index === 0}>{svgIcon("arrowUp", "inline-icon")}</button><button aria-label="Move down" onClick={() => moveLayout(index, 1)} disabled={index === layoutKeys.length - 1}>{svgIcon("arrowDown", "inline-icon")}</button></div>
-                  </div>;
-                })}
-              </div>
+              <section className="control-card layout-control">
+                <div className="panel-title-row"><div><span className="section-kicker">Topology</span><h3>Physical light order</h3></div><button className="hero-secondary compact" onClick={()=>saveLayout(layoutKeys,runtime.layout_direction)}>Save order</button></div>
+                <div className="layout-list compact-list">{layoutKeys.map((key,index)=>{const item=allComponents.find((x)=>x.key===key);if(!item)return null;return <div className="layout-item" key={key}><div className="order-index">{String(index+1).padStart(2,"0")}</div><img src={deviceImageFor(item.name,item.type)} alt=""/><div className="layout-copy"><strong>{item.name}</strong><span>{item.kind} · {item.type}</span></div><div className="layout-actions"><button onClick={()=>moveLayout(index,-1)} disabled={index===0}>{svgIcon("arrowUp","inline-icon")}</button><button onClick={()=>moveLayout(index,1)} disabled={index===layoutKeys.length-1}>{svgIcon("arrowDown","inline-icon")}</button></div></div>})}</div>
+              </section>
             </div>
           )}
 
-          {section === "ai" && (
-            <div className="ai-page">
-              <section className="ai-compose">
-                <span className="section-kicker">AI Director</span><h2>Describe the room you want</h2><p>DifSync uses local Ollama models when available. If Ollama is offline, the scene parser still works locally without sending your prompt anywhere.</p>
-                <textarea value={aiPrompt} onChange={(e) => setAiPrompt(e.target.value)} rows={6} />
-                <div className="ai-footer"><span>{aiStatus.online ? aiStatus.models.length + " local model(s) available" : "Ollama offline · deterministic local fallback active"}</span><button className="primary-action icon-action" onClick={generateAi} disabled={aiBusy}>{svgIcon("wand", "inline-icon")}<span>{aiBusy ? "Generating…" : "Generate scene"}</span></button></div>
-              </section>
-              <section className="ai-result">
-                {aiScene ? <>
-                  <div className="ai-scene-head"><div><span className="section-kicker">{aiScene.source === "ollama" ? "Local AI · " + (aiScene.model || "Ollama") : "Local parser"}</span><h3>{aiScene.name}</h3></div><div className="master-swatch" style={{ background: rgbToHex(rgbArray(aiScene.rgb)) }} /></div>
-                  <p>{aiScene.reason}</p>
-                  <div className="scene-specs"><div><span>Color</span><b>{rgbToHex(rgbArray(aiScene.rgb))}</b></div><div><span>Brightness</span><b>{aiScene.brightness}%</b></div><div><span>Effect</span><b>{aiScene.effect}</b></div><div><span>Frame</span><b>{aiScene.speed_ms} ms</b></div></div>
-                  <div className="ai-palette">{aiScene.palette && aiScene.palette.map((p, i) => <span key={i} style={{ background: rgbToHex(rgbArray(p)) }} />)}</div>
-                  {aiScene.ai_error && <small className="muted">AI fallback reason: {aiScene.ai_error}</small>}
-                  <button className="primary-action full" onClick={applyAiScene}>Apply AI scene</button>
-                </> : <div className="empty-result"><div className="ai-symbol"><BrandMark /></div><h3>No generated scene yet</h3><p>Your generated palette, effect and timing appear here before anything is applied.</p></div>}
-              </section>
+          {section === "integrations" && (
+            <div className="premium-page integrations-page">
+              <section className="page-heading"><div><span className="section-kicker">Connected services</span><h1>Integrations</h1><p>Local hardware adapters and cloud providers feeding the same DifSync control plane.</p></div></section>
+              <div className="integration-premium-grid">
+                <article className="integration-premium-card active"><div className="integration-art"><img src="/devices/govee-h6008.png" alt=""/></div><div><span className="device-live"><i className="status-dot online"/>Connected</span><h3>Govee</h3><p>{goveeDevices.length} H6008 room lights detected.</p></div><button onClick={()=>setSection("lighting")}>Open lighting</button></article>
+                <article className="integration-premium-card active"><div className="integration-art native">{svgIcon("devices","integration-big-icon")}</div><div><span className="device-live"><i className="status-dot online"/>Connected</span><h3>Native RGB</h3><p>ASUS, NZXT and SteelSeries local hardware adapters.</p></div><button onClick={()=>setSection("devices")}>View hardware</button></article>
+                <article className={cloudEnabled?"integration-premium-card active":"integration-premium-card"}><div className="integration-art native">{svgIcon("cloud","integration-big-icon")}</div><div><span className="device-live"><i className={cloudEnabled?"status-dot online":"status-dot"}/>{cloudEnabled?"Connected":"Disabled"}</span><h3>DifSync Cloud</h3><p>Secure command relay, web dashboard and MCP access.</p></div><button onClick={toggleCloud}>{cloudEnabled?"Disable":"Enable"}</button></article>
+                <article className="integration-premium-card"><div className="integration-art native">{svgIcon("ai","integration-big-icon")}</div><div><span className="device-live"><i className={aiStatus.online?"status-dot online":"status-dot"}/>{aiStatus.online?"Local AI ready":"Fallback available"}</span><h3>AI Director</h3><p>{aiStatus.online?aiStatus.models.length+" Ollama models available":"Deterministic local scene parser active."}</p></div><button onClick={()=>setSection("sync")}>Open Studio</button></article>
+              </div>
             </div>
           )}
 
           {section === "settings" && (
-            <div className="settings-page">
-              <section className="setting-card"><div><span className="section-kicker">Remote access</span><h3>difsync.com control</h3><p>When disabled, the local remote agent stops polling the cloud and refuses queued commands. Local control remains available.</p></div><button className={cloudEnabled ? "big-switch on" : "big-switch"} onClick={toggleCloud}><span /><b>{cloudEnabled ? "Enabled" : "Disabled"}</b></button></section>
-              <section className="setting-card"><div><span className="section-kicker">Appearance</span><h3>Theme</h3><p>Use the same clean interface in dark or light mode.</p></div><div className="segmented compact"><button className={theme === "dark" ? "active" : ""} onClick={() => setTheme("dark")}>Dark</button><button className={theme === "light" ? "active" : ""} onClick={() => setTheme("light")}>Light</button></div></section>
-              <section className="setting-card"><div><span className="section-kicker">AI engine</span><h3>Ollama model</h3><p>Leave Auto selected and DifSync will choose an available Qwen, Llama or Gemma model.</p></div><select value={runtime.ai_model || ""} onChange={(e) => setAiModel(e.target.value)}><option value="">Auto</option>{aiStatus.models.map((model) => <option value={model} key={model}>{model}</option>)}</select></section>
-              <section className="setting-card"><div><span className="section-kicker">Runtime</span><h3>Local service</h3><p>{localOnline ? "Dashboard API is healthy." : "The local service is not responding."}</p></div><button className="secondary-action" onClick={ensureRuntime}>Restart DifSync</button></section>
-              <section className="diagnostic-card"><span className="section-kicker">Runtime snapshot</span><pre>{JSON.stringify({ backend: health?.pc_rgb_backend, pc_devices: pcDevices.length, room_lights: goveeDevices.length, cloud_enabled: runtime.cloud_enabled, ai_online: aiStatus.online, desktop: isDesktop }, null, 2)}</pre></section>
+            <div className="settings-page premium-page">
+              <section className="page-heading"><div><span className="section-kicker">Application</span><h1>Settings</h1><p>Control remote access, appearance, AI and the local runtime.</p></div></section>
+              <section className="setting-card"><div><span className="section-kicker">Remote access</span><h3>difsync.com control</h3><p>Local lighting keeps working even when remote control is disabled.</p></div><button className={cloudEnabled?"big-switch on":"big-switch"} onClick={toggleCloud}><span/><b>{cloudEnabled?"Enabled":"Disabled"}</b></button></section>
+              <section className="setting-card"><div><span className="section-kicker">Appearance</span><h3>Theme</h3><p>Use the same premium control surface in dark or light mode.</p></div><div className="segmented compact"><button className={theme==="dark"?"active":""} onClick={()=>setTheme("dark")}>Dark</button><button className={theme==="light"?"active":""} onClick={()=>setTheme("light")}>Light</button></div></section>
+              <section className="setting-card"><div><span className="section-kicker">AI engine</span><h3>Ollama model</h3><p>Select the local model used for scene generation.</p></div><select value={runtime.ai_model||""} onChange={(e)=>setAiModel(e.target.value)}><option value="">Auto</option>{aiStatus.models.map((model)=><option value={model} key={model}>{model}</option>)}</select></section>
+              <section className="setting-card"><div><span className="section-kicker">Runtime</span><h3>Local service</h3><p>{localOnline?"Local hardware API is healthy.":"The local engine is not responding."}</p></div><button className="hero-secondary" onClick={ensureRuntime}>{svgIcon("refresh","inline-icon")}<span>Restart service</span></button></section>
             </div>
           )}
         </main>
@@ -769,6 +844,7 @@ export default function App() {
       {toast && <div className="toast">{toast}</div>}
     </div>
   );
+
 }
 
 declare global {
