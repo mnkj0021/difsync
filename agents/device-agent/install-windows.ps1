@@ -53,7 +53,11 @@ if (-not $csc) { throw "Windows .NET Framework C# compiler is required." }
 
 $appExe = Join-Path $InstallDir "DifSync.exe"
 $tempExe = Join-Path $env:TEMP ("DifSync-" + [guid]::NewGuid().ToString("N") + ".exe")
-& $csc /nologo /target:winexe /optimize+ /reference:System.Windows.Forms.dll /reference:System.Drawing.dll /out:$tempExe $appSource
+$iconFile = Join-Path $InstallDir "apps\web\public\assets\difsync-icon.ico"
+$compileArgs = @("/nologo","/target:winexe","/optimize+","/reference:System.Windows.Forms.dll","/reference:System.Drawing.dll","/out:$tempExe")
+if (Test-Path $iconFile) { $compileArgs += "/win32icon:$iconFile" }
+$compileArgs += $appSource
+& $csc @compileArgs
 if ($LASTEXITCODE -ne 0 -or -not (Test-Path $tempExe)) { throw "DifSync Windows app compilation failed." }
 Move-Item -Force $tempExe $appExe
 
