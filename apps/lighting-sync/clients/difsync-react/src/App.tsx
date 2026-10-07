@@ -127,17 +127,6 @@ function icon(section: Section) {
   return svgIcon(section);
 }
 
-function deviceIcon(type: string, name: string) {
-  const key = String(type || "").toUpperCase();
-  const label = String(name || "").toLowerCase();
-  if (key.includes("KEYBOARD") || label.includes("keyboard") || label.includes("apex")) return svgIcon("keyboard", "device-type-icon");
-  if (key.includes("MOUSE") || label.includes("mouse") || label.includes("aerox")) return svgIcon("mouse", "device-type-icon");
-  if (key.includes("GPU") || label.includes("rtx") || label.includes("geforce")) return svgIcon("gpu", "device-type-icon");
-  if (key.includes("MOTHERBOARD") || label.includes("aura")) return svgIcon("board", "device-type-icon");
-  if (key.includes("DRAM") || label.includes("ram")) return svgIcon("memory", "device-type-icon");
-  return svgIcon("bulb", "device-type-icon");
-}
-
 function BrandMark() {
   return <svg className="brand-mark-svg" viewBox="0 0 64 64" aria-hidden="true">
     <path d="M18 24.5 27.5 15 37 24.5 27.5 34 18 24.5Z" />
@@ -178,7 +167,7 @@ export default function App() {
   const [busy, setBusy] = useState("");
   const [toast, setToast] = useState("");
   const [eventFeed, setEventFeed] = useState<string[]>([]);
-  const [rendererTick, setRendererTick] = useState(0);
+  const [, setRendererTick] = useState(0);
   const [deviceFilter, setDeviceFilter] = useState<"all" | "peripherals" | "components" | "lighting">("all");
   const toastTimer = useRef<number | null>(null);
 
@@ -773,7 +762,7 @@ export default function App() {
                     <div><span>Current color</span><b>{color}</b><small>{hexToRgb(color).join(" / ")}</small></div>
                   </div>
                   <div className="slider-block"><div className="slider-label"><span>Brightness</span><b>{brightness}%</b></div><input type="range" min="0" max="100" value={brightness} onChange={(e)=>setBrightness(Number(e.target.value))}/></div>
-                  <button className="hero-primary full-width" onClick={()=>applyColor()}>{svgIcon("play","inline-icon")}<span>Apply to selected devices</span></button>
+                  <button className="hero-primary full-width" onClick={()=>applyColor()} disabled={busy==="apply"}>{svgIcon("play","inline-icon")}<span>Apply to selected devices</span></button>
                 </section>
                 <section className="control-card selected-preview">
                   <div className="panel-title-row"><div><span className="section-kicker">Live topology</span><h3>Selected devices</h3></div></div>
@@ -805,6 +794,7 @@ export default function App() {
                     <div className="field-row"><label>Motion speed <b>{motionSpeed.toFixed(2)}×</b></label><input type="range" min="0.1" max="1.8" step=".05" value={motionSpeed} onChange={(e)=>setMotionSpeed(Number(e.target.value))}/></div>
                     <div className="field-row"><label>Spread <b>{effectSpread.toFixed(1)}×</b></label><input type="range" min=".4" max="4" step=".1" value={effectSpread} onChange={(e)=>setEffectSpread(Number(e.target.value))}/></div>
                   </div>
+                  <div className="direction-row premium-direction"><span>Direction</span><div className="segmented compact"><button className={effectDirection===1?"active":""} onClick={()=>setEffectDirection(1)}>Forward</button><button className={effectDirection===-1?"active":""} onClick={()=>setEffectDirection(-1)}>Reverse</button></div></div>
                   <div className="palette-editor">{effectPalette.map((entry,idx)=><label key={idx}><span>Color {idx+1}</span><input type="color" value={entry} onChange={(e)=>setEffectPalette((p)=>p.map((x,i)=>i===idx?e.target.value.toUpperCase():x))}/></label>)}</div>
                   <button className="hero-primary full-width" onClick={effect==="static"?()=>applyColor():startEffect}>{svgIcon("play","inline-icon")}<span>Render effect</span></button>
                 </section>
@@ -813,6 +803,18 @@ export default function App() {
                     <div className="beam b1"/><div className="beam b2"/><div className="beam b3"/>
                     <div className="preview-center"><span>DIFSYNC RENDER</span><strong>{effect.toUpperCase()}</strong><small>{animatePcRows.length} animated · {selectedGovee.length} room lights</small></div>
                   </div>
+                </section>
+              </div>
+              <div className="sync-lower-grid">
+                <section className="control-card ai-premium-card">
+                  <div className="panel-title-row"><div><span className="section-kicker">AI Director</span><h3>Generate a scene</h3></div><span className={aiStatus.online?"health-pill healthy":"health-pill"}>{aiStatus.online?"Ollama ready":"Local fallback"}</span></div>
+                  <textarea value={aiPrompt} onChange={(e)=>setAiPrompt(e.target.value)} rows={4}/>
+                  <div className="ai-premium-actions"><button className="hero-primary" onClick={generateAi} disabled={aiBusy}>{svgIcon("ai","inline-icon")}<span>{aiBusy?"Generating…":"Generate"}</span></button>{aiScene&&<button className="hero-secondary" onClick={applyAiScene}>Apply {aiScene.name}</button>}</div>
+                  {aiScene&&<div className="ai-result-mini"><span style={{background:rgbToHex(rgbArray(aiScene.rgb))}}/><div><b>{aiScene.name}</b><small>{aiScene.effect} · {aiScene.brightness}%</small></div></div>}
+                </section>
+                <section className="control-card activity-premium-card">
+                  <div className="panel-title-row"><div><span className="section-kicker">Activity</span><h3>Recent actions</h3></div></div>
+                  <div className="activity-feed">{eventFeed.length?eventFeed.slice(0,8).map((row,i)=><div key={row+i}>{row}</div>):<div className="muted">No actions yet.</div>}</div>
                 </section>
               </div>
               <section className="control-card layout-control">
