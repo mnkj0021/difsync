@@ -1,0 +1,1803 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>DIF - Pulse Deck</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=Sora:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #f2ede3;
+      --panel: rgba(255, 255, 255, 0.74);
+      --ink: #152238;
+      --muted: #5d6f86;
+      --line: rgba(24, 38, 58, 0.2);
+      --line-soft: rgba(24, 38, 58, 0.11);
+      --soft: rgba(84, 209, 255, 0.2);
+      --accent: #ff9f4d;
+      --accent2: #54d1ff;
+      --shadow: 0 20px 56px rgba(14, 24, 38, 0.17);
+      --ambient: rgba(84, 209, 255, 0.28);
+      --ambient2: rgba(255, 168, 101, 0.18);
+    }
+
+    body.theme-dark {
+      --bg: #070c14;
+      --panel: rgba(11, 18, 30, 0.82);
+      --ink: #f3f7ff;
+      --muted: rgba(214, 227, 246, 0.68);
+      --line: rgba(118, 186, 241, 0.2);
+      --line-soft: rgba(118, 186, 241, 0.12);
+      --soft: rgba(84, 209, 255, 0.22);
+      --accent: #ffab63;
+      --accent2: #52d3ff;
+      --shadow: 0 24px 66px rgba(0, 0, 0, 0.46);
+      --ambient: rgba(84, 209, 255, 0.16);
+      --ambient2: rgba(255, 171, 99, 0.12);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      margin: 0;
+      min-height: 100%;
+      font-family: "Sora", system-ui, sans-serif;
+      color: var(--ink);
+      background: var(--bg);
+    }
+
+    .ambient {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 0;
+      background:
+        radial-gradient(circle at 14% 8%, var(--ambient) 0%, transparent 50%),
+        radial-gradient(circle at 84% 92%, var(--ambient2) 0%, transparent 56%);
+    }
+
+    .dots {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 0;
+      opacity: 0.09;
+      background-image: radial-gradient(rgba(0, 0, 0, 0.14) 1px, transparent 1px);
+      background-size: 20px 20px;
+    }
+
+    body.theme-dark .dots {
+      background-image: radial-gradient(rgba(255, 255, 255, 0.17) 1px, transparent 1px);
+    }
+
+    #petals {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 1;
+      overflow: hidden;
+    }
+
+    .petal {
+      position: absolute;
+      top: -40px;
+      width: 10px;
+      height: 10px;
+      border-radius: 10px;
+      opacity: 0.42;
+      background: #ffb173;
+      clip-path: polygon(50% 0%, 62% 22%, 85% 25%, 70% 45%, 76% 70%, 50% 58%, 24% 70%, 30% 45%, 15% 25%, 38% 22%);
+      animation: fall linear infinite;
+    }
+
+    body.theme-dark .petal {
+      background: #7ce4ff;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      #petals {
+        display: none;
+      }
+
+      .petal,
+      .btn,
+      .pixel-device,
+      .pixel-cell {
+        animation: none !important;
+        transition: none !important;
+      }
+    }
+
+    @keyframes fall {
+      from {
+        transform: translateY(0) rotate(0);
+      }
+
+      to {
+        transform: translateY(calc(100vh + 80px)) rotate(360deg);
+      }
+    }
+
+    .app {
+      position: relative;
+      z-index: 2;
+      max-width: 1440px;
+      margin: 0 auto;
+      padding: 24px;
+      display: grid;
+      grid-template-columns: 288px minmax(0, 1fr);
+      gap: 20px;
+    }
+
+    .panel {
+      border: 1px solid var(--line-soft);
+      border-radius: 24px;
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.84), rgba(246, 250, 255, 0.62)),
+        var(--panel);
+      backdrop-filter: none;
+      box-shadow: var(--shadow);
+    }
+
+    body.theme-dark .panel {
+      background:
+        linear-gradient(180deg, rgba(20, 32, 48, 0.84), rgba(9, 14, 24, 0.92)),
+        var(--panel);
+    }
+
+    .sidebar {
+      padding: 16px;
+      position: sticky;
+      top: 18px;
+      align-self: start;
+      display: flex;
+      flex-direction: column;
+      height: calc(100dvh - 36px);
+    }
+
+    .brand {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: center;
+    }
+
+    .brand-main {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .logo {
+      width: 42px;
+      height: 42px;
+      border-radius: 14px;
+      border: 1px solid var(--line-soft);
+      background: linear-gradient(135deg, rgba(84, 209, 255, 0.2), rgba(255, 159, 77, 0.24));
+      display: grid;
+      place-items: center;
+      color: var(--ink);
+      font-size: 18px;
+      font-weight: 700;
+    }
+
+    h1,
+    h2,
+    h3,
+    h4 {
+      margin: 0;
+    }
+
+    .brand h1 {
+      font-family: "Rajdhani", sans-serif;
+      font-size: 21px;
+      letter-spacing: 0.02em;
+    }
+
+    .muted {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .icon-btn {
+      border: 1px solid var(--line-soft);
+      background: rgba(255, 255, 255, 0.54);
+      color: var(--ink);
+      width: 38px;
+      height: 38px;
+      border-radius: 14px;
+      cursor: pointer;
+      transition: 140ms ease;
+    }
+
+    body.theme-dark .icon-btn {
+      background: rgba(255, 255, 255, 0.05);
+    }
+
+    .icon-btn:hover {
+      transform: translateY(-1px);
+      border-color: var(--line);
+    }
+
+    .nav {
+      display: grid;
+      gap: 8px;
+      margin-top: auto;
+    }
+
+    .nav button {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      border: 1px solid transparent;
+      background: transparent;
+      color: var(--muted);
+      border-radius: 16px;
+      padding: 10px 12px;
+      cursor: pointer;
+      font-weight: 600;
+      transition: 140ms ease;
+    }
+
+    .nav button .dot {
+      margin-left: auto;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: transparent;
+    }
+
+    .nav button.active {
+      background: linear-gradient(130deg, var(--soft), transparent);
+      color: var(--ink);
+      border-color: var(--line-soft);
+    }
+
+    .nav button.active .dot {
+      background: var(--accent);
+    }
+
+    .box {
+      border: 1px solid var(--line-soft);
+      border-radius: 18px;
+      background: rgba(255, 255, 255, 0.52);
+      padding: 12px;
+      margin-top: 12px;
+    }
+
+    body.theme-dark .box {
+      background: rgba(255, 255, 255, 0.04);
+    }
+
+    .btn {
+      border: 1px solid var(--line-soft);
+      border-radius: 13px;
+      padding: 9px 12px;
+      font: 700 13px inherit;
+      cursor: pointer;
+      transition: 140ms ease;
+    }
+
+    .btn:hover {
+      transform: translateY(-1px);
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, var(--accent2), var(--accent));
+      color: #08131f;
+      border-color: rgba(255, 255, 255, 0.16);
+    }
+
+    .btn-ghost {
+      background: rgba(255, 255, 255, 0.46);
+      color: var(--ink);
+    }
+
+    body.theme-dark .btn-ghost {
+      background: rgba(255, 255, 255, 0.05);
+    }
+
+    .btn-danger {
+      background: linear-gradient(135deg, #ff7f7f, #ffb86a);
+      color: #fff;
+      border-color: transparent;
+    }
+
+    .row2 {
+      margin-top: 10px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .main {
+      display: grid;
+      gap: 18px;
+      min-width: 0;
+    }
+
+    .header {
+      padding: 16px;
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: center;
+    }
+
+    .header h2 {
+      font: 700 29px "Rajdhani", sans-serif;
+      letter-spacing: 0.01em;
+    }
+
+    .chip {
+      border: 1px solid var(--line-soft);
+      background: rgba(255, 255, 255, 0.52);
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 700;
+      padding: 8px 12px;
+    }
+
+    body.theme-dark .chip {
+      background: rgba(255, 255, 255, 0.06);
+    }
+
+    .head-right {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .page {
+      display: none;
+      gap: 16px;
+    }
+
+    .page.active {
+      display: grid;
+    }
+
+    .grid2 {
+      display: grid;
+      gap: 16px;
+      grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr);
+    }
+
+    .gridEq {
+      display: grid;
+      gap: 16px;
+      grid-template-columns: 1fr 1fr;
+    }
+
+    .card {
+      border: 1px solid var(--line-soft);
+      border-radius: 22px;
+      background: rgba(255, 255, 255, 0.54);
+      padding: 16px;
+      box-shadow: 0 12px 34px rgba(20, 26, 36, 0.11);
+    }
+
+    body.theme-dark .card {
+      background: rgba(255, 255, 255, 0.04);
+    }
+
+    .preview {
+      border: 1px solid var(--line-soft);
+      border-radius: 20px;
+      padding: 14px;
+      margin: 10px 0;
+      background: linear-gradient(140deg, rgba(84, 209, 255, 0.19), rgba(255, 159, 77, 0.2));
+    }
+
+    .big {
+      font-size: 31px;
+      font-family: "Rajdhani", sans-serif;
+      font-weight: 700;
+      margin: 6px 0 2px;
+      letter-spacing: 0.01em;
+    }
+
+    .action4 {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .list {
+      display: grid;
+      gap: 10px;
+      max-height: 520px;
+      overflow: auto;
+      padding-right: 2px;
+    }
+
+    .item {
+      border: 1px solid transparent;
+      border-radius: 16px;
+      background: rgba(255, 255, 255, 0.42);
+      padding: 12px;
+      box-shadow: inset 0 0 0 1px var(--line-soft);
+    }
+
+    body.theme-dark .item {
+      background: rgba(255, 255, 255, 0.03);
+    }
+
+    .top {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      align-items: start;
+    }
+
+    .name {
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .meta {
+      margin-top: 3px;
+      font-size: 11px;
+      color: var(--muted);
+      word-break: break-word;
+    }
+
+    .badge {
+      border: 1px solid var(--line-soft);
+      border-radius: 999px;
+      padding: 3px 7px;
+      font-size: 10px;
+      font-weight: 700;
+      background: rgba(255, 255, 255, 0.37);
+    }
+
+    .slider {
+      display: grid;
+      gap: 6px;
+      margin-top: 8px;
+    }
+
+    .srow {
+      display: flex;
+      justify-content: space-between;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .track {
+      height: 12px;
+      border: 1px solid var(--line-soft);
+      border-radius: 99px;
+      background: rgba(255, 255, 255, 0.36);
+      position: relative;
+    }
+
+    .fill {
+      position: absolute;
+      inset: 0 auto 0 0;
+      width: 40%;
+      background: var(--accent2);
+      border-radius: 99px;
+    }
+
+    .track input[type="range"] {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      margin: 0;
+      appearance: none;
+      background: transparent;
+    }
+
+    .track input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      border: 1px solid var(--line);
+      background: #fff;
+      margin-top: -3px;
+    }
+
+    #pixelBrightness,
+    #pixelAnimInterval {
+      position: static;
+      inset: auto;
+      width: 100%;
+      margin: 0;
+      appearance: auto;
+      background: transparent;
+    }
+
+    .field {
+      border: 1px solid var(--line-soft);
+      border-radius: 14px;
+      background: rgba(255, 255, 255, 0.34);
+      padding: 11px 12px;
+    }
+
+    body.theme-dark .field {
+      background: rgba(255, 255, 255, 0.03);
+    }
+
+    .field label {
+      display: block;
+      font-size: 10px;
+      color: var(--muted);
+      font-weight: 700;
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+
+    .field input,
+    .field select {
+      width: 100%;
+      background: transparent;
+      border: 0;
+      color: var(--ink);
+      font: inherit;
+      font-size: 13px;
+      outline: none;
+    }
+
+    .switch {
+      border: 1px solid var(--line-soft);
+      border-radius: 999px;
+      width: 62px;
+      height: 34px;
+      background: rgba(255, 255, 255, 0.38);
+      padding: 3px;
+      cursor: pointer;
+    }
+
+    .switch span {
+      display: block;
+      width: 26px;
+      height: 26px;
+      border-radius: 999px;
+      background: rgba(0, 0, 0, 0.14);
+      transition: 0.2s;
+    }
+
+    .switch.on span {
+      transform: translateX(28px);
+      background: var(--accent2);
+    }
+
+    footer {
+      padding: 12px 16px;
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      flex-wrap: wrap;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .ok {
+      color: #1f9b66;
+    }
+
+    .bad {
+      color: #d44660;
+    }
+
+    .pixel-tools {
+      display: grid;
+      gap: 8px;
+      margin-top: 10px;
+      grid-template-columns: repeat(6, minmax(0, 1fr));
+    }
+
+    .pixel-tools .field {
+      margin: 0;
+    }
+
+    .pixel-gallery {
+      display: grid;
+      gap: 10px;
+      grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+    }
+
+    .pixel-device {
+      border: 1px solid var(--line-soft);
+      border-radius: 14px;
+      background: rgba(255, 255, 255, 0.32);
+      padding: 10px;
+      display: grid;
+      gap: 8px;
+      cursor: pointer;
+      text-align: left;
+      transition: transform 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease;
+    }
+
+    body.theme-dark .pixel-device {
+      background: rgba(255, 255, 255, 0.04);
+    }
+
+    .pixel-device:hover {
+      transform: translateY(-1px);
+      border-color: var(--accent2);
+    }
+
+    .pixel-device.active {
+      border-color: var(--accent);
+      box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2);
+    }
+
+    .pixel-device-head {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .pixel-device-art {
+      width: 34px;
+      height: 34px;
+      border-radius: 10px;
+      border: 1px solid var(--line);
+      display: grid;
+      place-items: center;
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.4px;
+      background: linear-gradient(135deg, #ffffff, #fff3e6);
+      color: #6a3b13;
+    }
+
+    body.theme-dark .pixel-device-art {
+      background: linear-gradient(135deg, #1c2738, #2d1623);
+      color: #ffd4b0;
+    }
+
+    .pixel-logo {
+      width: 20px;
+      height: 20px;
+      object-fit: contain;
+      display: block;
+      filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.18));
+    }
+
+    .pixel-device-name {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--ink);
+      line-height: 1.2;
+    }
+
+    .pixel-device-sub {
+      font-size: 10px;
+      color: var(--muted);
+    }
+
+    .pixel-device-meta {
+      display: flex;
+      justify-content: space-between;
+      gap: 6px;
+      font-size: 10px;
+      color: var(--muted);
+    }
+
+    .pixel-grid {
+      margin-top: 10px;
+      display: grid;
+      gap: 4px;
+      grid-template-columns: repeat(auto-fill, minmax(20px, 1fr));
+      max-height: 340px;
+      overflow: auto;
+      padding: 8px;
+      border: 1px solid var(--line-soft);
+      border-radius: 16px;
+      background: rgba(255, 255, 255, 0.28);
+    }
+
+    body.theme-dark .pixel-grid {
+      background: rgba(255, 255, 255, 0.03);
+    }
+
+    .pixel-cell {
+      width: 100%;
+      aspect-ratio: 1 / 1;
+      border: 1px solid rgba(0, 0, 0, 0.2);
+      border-radius: 6px;
+      cursor: pointer;
+      transition: transform 0.08s ease;
+    }
+
+    body.theme-dark .pixel-cell {
+      border-color: rgba(255, 255, 255, 0.28);
+    }
+
+    .pixel-cell.sel {
+      outline: 2px solid var(--accent2);
+      transform: scale(1.05);
+    }
+
+    .pixel-meta {
+      margin-top: 8px;
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      font-size: 12px;
+      color: var(--muted);
+      flex-wrap: wrap;
+    }
+
+    .pixel-row {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 8px;
+    }
+
+    .pixel-status {
+      margin-top: 8px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .pixel-divider {
+      margin: 14px 0;
+      border-top: 1px dashed var(--line-soft);
+    }
+
+    .devices-layout {
+      display: grid;
+      gap: 18px;
+      grid-template-columns: 1fr;
+    }
+
+    .pc-hub {
+      padding: 20px;
+    }
+
+    .pc-hub .pixel-tools {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .pc-hub #pixelDeviceGallery {
+      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    }
+
+    .pc-hub #pcDeviceList {
+      max-height: 300px;
+    }
+
+    .nzxt-panel {
+      margin-top: 10px;
+      display: grid;
+      gap: 10px;
+    }
+
+    .nzxt-connector {
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: rgba(255, 255, 255, 0.67);
+      padding: 10px;
+    }
+
+    body.theme-dark .nzxt-connector {
+      background: rgba(255, 255, 255, 0.04);
+    }
+
+    .nzxt-connector-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .nzxt-connector-title {
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .nzxt-ports {
+      margin-top: 8px;
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .nzxt-port {
+      display: grid;
+      gap: 6px;
+      justify-items: center;
+    }
+
+    .nzxt-port-name {
+      font-size: 11px;
+      color: var(--muted);
+    }
+
+    .nzxt-ring {
+      position: relative;
+      width: 126px;
+      height: 126px;
+      border-radius: 50%;
+      border: 1px solid var(--line);
+      background: radial-gradient(circle at center, rgba(255, 255, 255, 0.92) 0 33%, rgba(255, 255, 255, 0.52) 34% 45%, transparent 46%);
+    }
+
+    body.theme-dark .nzxt-ring {
+      background: radial-gradient(circle at center, rgba(255, 255, 255, 0.1) 0 33%, rgba(255, 255, 255, 0.04) 34% 45%, transparent 46%);
+    }
+
+    .nzxt-ring-core {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      font-size: 10px;
+      font-weight: 700;
+      color: var(--muted);
+      pointer-events: none;
+    }
+
+    .nzxt-led {
+      position: absolute;
+      width: 11px;
+      height: 11px;
+      border-radius: 50%;
+      border: 1px solid rgba(0, 0, 0, 0.2);
+      cursor: pointer;
+    }
+
+    body.theme-dark .nzxt-led {
+      border-color: rgba(255, 255, 255, 0.28);
+    }
+
+    .nzxt-led.sel {
+      outline: 2px solid var(--accent2);
+    }
+
+    @media (max-width: 1120px) {
+      .pixel-tools {
+        grid-template-columns: 1fr 1fr;
+      }
+
+      .pc-hub .pixel-tools {
+        grid-template-columns: 1fr 1fr;
+      }
+    }
+
+    @media (max-width: 1120px) {
+      .app {
+        grid-template-columns: 1fr;
+      }
+
+      .sidebar {
+        position: static;
+        height: auto;
+      }
+
+      .grid2,
+      .gridEq {
+        grid-template-columns: 1fr;
+      }
+
+      .action4 {
+        grid-template-columns: 1fr 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="ambient"></div>
+  <div class="dots"></div>
+  <div id="petals"></div>
+
+  <div class="app">
+    <aside class="panel sidebar">
+      <div class="brand">
+      <div class="brand-main"><div class="logo">DF</div><div><h1>DIF</h1><div class="muted">Pulse Deck</div></div></div>
+        <button id="themeToggle" class="icon-btn" title="Toggle Theme">Dark</button>
+      </div>
+      <nav class="nav">
+        <button class="active" data-page="Dashboard">Dashboard <span class="dot"></span></button>
+        <button data-page="Devices">Devices <span class="dot"></span></button>
+        <button data-page="Scenes">Scenes <span class="dot"></span></button>
+        <button data-page="Settings">Settings <span class="dot"></span></button>
+      </nav>
+      <div class="box">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
+          <div><div class="muted">Current Hue</div><div id="currentHex" style="font-weight:700">#EBA4BD</div></div>
+          <div id="currentSwatch" style="width:38px;height:38px;border:1px solid var(--line);border-radius:12px;background:#eba4bd"></div>
+        </div>
+        <div class="muted" style="margin-top:8px">Brightness: <b id="currentBrightness">92%</b></div>
+      </div>
+      <div class="row2"><button id="sidebarRefresh" class="btn btn-ghost">Refresh</button><button id="sidebarApply" class="btn btn-primary">Apply</button></div>
+    </aside>
+
+    <main class="main">
+      <header class="panel header">
+        <div><h2 id="pageTitle">Dashboard</h2><div class="muted">Realtime orchestration for PC RGB and smart lights</div></div>
+        <div class="head-right"><div id="autoRefreshChip" class="chip">Auto refresh (8s)</div><button id="healthBtn" class="btn btn-ghost">Status</button></div>
+      </header>
+
+      <section id="page-Dashboard" class="page active">
+        <div class="grid2">
+          <div class="card">
+            <h3>Color Studio</h3><div class="muted">Soft sliders, unified scene controls</div>
+            <div id="previewCard" class="preview">
+              <div class="muted">Preview</div><div id="previewHex" class="big">#EBA4BD</div>
+              <div id="previewRgb" class="muted">RGB 235, 164, 189</div><div id="previewBrightness" class="muted" style="margin-top:6px">Brightness 92%</div>
+              <div style="margin-top:8px;display:flex;align-items:center;gap:10px">
+                <input id="liveColorPicker" type="color" value="#EBA4BD" style="width:44px;height:34px;border:1px solid var(--line);border-radius:10px;background:#fff;cursor:pointer" />
+                <span class="muted">Live Color Picker</span>
+              </div>
+              <div class="action4">
+                <button id="applyAllBtn" class="btn btn-primary">Apply All</button>
+                <button id="applyPcBtn" class="btn btn-ghost">Apply PC</button>
+                <button id="applyIotBtn" class="btn btn-ghost">Apply IoT</button>
+                <button id="allOffBtn" class="btn btn-danger">All Off</button>
+              </div>
+            </div>
+            <div class="card" style="padding:12px;margin-bottom:12px"><h4 style="font-size:13px">Quick Presets</h4><div id="quickPresetList" class="list" style="max-height:190px;margin-top:8px"></div></div>
+            <div id="slidersWrap"></div>
+          </div>
+          <div class="card"><h3>Scenes</h3><div class="muted">Saved presets and one-tap apply</div><div id="dashboardScenes" class="list" style="margin-top:10px"></div></div>
+        </div>
+      </section>
+      <section id="page-Devices" class="page">
+        <div class="devices-layout">
+          <div class="card pc-hub" id="pixelLabCard">
+            <h3>PC Control Hub</h3><div class="muted">Device targeting + per-LED Pixel Lab in one system</div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin:10px 0"><button id="pcSelectAll" class="btn btn-ghost">Select All</button><button id="pcClear" class="btn btn-ghost">Clear</button><button id="pcApplySelected" class="btn btn-primary">Apply Selected</button></div>
+            <div id="pcDeviceList" class="list"></div>
+            <div class="pixel-divider"></div>
+            <h3 style="font-size:18px">Pixel Lab</h3>
+            <div class="muted">Per-LED paint + segment fill + animations (local PC backend)</div>
+            <div class="pixel-tools">
+              <div class="field" style="grid-column:span 6">
+                <label for="pixelDeviceSelect">PC Device Picker</label>
+                <div id="pixelDeviceGallery" class="pixel-gallery"></div>
+                <select id="pixelDeviceSelect" style="display:none"></select>
+              </div>
+              <div class="field"><label for="pixelSegmentSelect">Segment</label><select id="pixelSegmentSelect"></select></div>
+              <div class="field"><label for="pixelBrushColor">Brush</label><input id="pixelBrushColor" type="color" value="#EBA4BD" /></div>
+              <div class="field"><label for="pixelBrightness">Brightness</label><input id="pixelBrightness" type="range" min="0" max="100" value="100" /></div>
+              <div class="field"><label for="pixelViewMode">View</label><select id="pixelViewMode"><option value="hybrid">Hybrid</option><option value="grid">Grid only</option><option value="rings">Rings only</option></select></div>
+              <div class="field"><label>Live Push</label><div style="display:flex;align-items:center;justify-content:space-between;gap:8px"><span id="pixelBrightnessVal" style="font-weight:700">100%</span><input id="pixelAutoPush" type="checkbox" checked /></div></div>
+            </div>
+            <div class="pixel-row">
+              <button id="pixelReloadDevicesBtn" class="btn btn-ghost">Reload Devices</button>
+              <button id="pixelReloadLayoutBtn" class="btn btn-ghost">Reload Layout</button>
+              <button id="pixelFillAllBtn" class="btn btn-primary">Fill All</button>
+              <button id="pixelFillSegmentBtn" class="btn btn-ghost">Fill Segment</button>
+              <button id="pixelPushNowBtn" class="btn btn-primary">Push Now</button>
+              <button id="pixelClearBtn" class="btn btn-danger">Blackout</button>
+            </div>
+            <div id="pixelGrid" class="pixel-grid"></div>
+            <div id="pixelNzxtPanel" class="nzxt-panel" style="display:none"></div>
+            <div class="pixel-meta"><span id="pixelMeta">No layout loaded.</span><span id="pixelStatus">Idle</span></div>
+            <div class="pixel-row">
+              <div class="field" style="min-width:180px"><label for="pixelAnimEffect">Animation</label><select id="pixelAnimEffect"><option value="rainbow">Rainbow</option><option value="chase">Chase</option><option value="pulse">Pulse</option><option value="wave">Wave</option></select></div>
+              <div class="field" style="min-width:180px"><label for="pixelAnimInterval">Interval (ms)</label><input id="pixelAnimInterval" type="range" min="20" max="300" value="65" /></div>
+              <div class="field" style="min-width:280px;flex:1"><label for="pixelPalette">Palette (#HEX,#HEX)</label><input id="pixelPalette" type="text" value="#FF3A6A,#45B7FF,#FFE066" /></div>
+              <button id="pixelAnimStartBtn" class="btn btn-primary">Start Animation</button>
+              <button id="pixelAnimStopBtn" class="btn btn-danger">Stop Animation</button>
+              <button id="pixelAnimStatusBtn" class="btn btn-ghost">Status</button>
+            </div>
+            <div class="pixel-status" id="pixelAnimNote">Animation idle.</div>
+          </div>
+          <div class="card">
+            <h3>Smart Lights</h3><div class="muted">Govee bulbs and strips</div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin:10px 0"><button id="iotSelectAll" class="btn btn-ghost">Select All</button><button id="iotClear" class="btn btn-ghost">Clear</button><button id="iotApplySelected" class="btn btn-primary">Apply Selected</button></div>
+            <div id="goveeDeviceList" class="list"></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="page-Scenes" class="page">
+        <div class="gridEq">
+          <div class="card"><h3>Scene Library</h3><div class="muted">Defaults + server presets</div><div id="sceneLibrary" class="list" style="margin-top:10px"></div></div>
+          <div class="card">
+            <h3>Create Scene</h3><div class="muted">Save current color and selection</div>
+            <div class="field" style="margin-top:10px"><label for="sceneNameInput">Preset Name</label><input id="sceneNameInput" type="text" placeholder="e.g. Petal Calm" /></div>
+            <div class="field" style="margin-top:10px"><label for="sceneTarget">Target</label><select id="sceneTarget"><option value="scene">Scene (PC + IoT)</option><option value="openrgb">PC only</option><option value="govee">IoT only</option></select></div>
+            <div class="preview" style="margin-top:10px"><div class="muted">Output</div><div id="createPreviewText" class="big" style="font-size:20px">#EBA4BD - 92%</div><div id="createPreviewBar" style="height:36px;border-radius:14px;border:1px solid var(--line);margin-top:8px"></div></div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px"><button id="saveSceneBtn" class="btn btn-primary">Save Preset</button><button id="applyCurrentSceneBtn" class="btn btn-ghost">Apply Current</button></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="page-Settings" class="page">
+        <div class="gridEq">
+          <div class="card">
+            <h3>Auth and Refresh</h3><div class="muted">Token, auto-refresh, diagnostics</div>
+            <div class="field" style="margin-top:10px"><label for="tokenInput">Bearer Token</label><input id="tokenInput" type="text" placeholder="Optional token" /></div>
+            <div class="field" style="margin-top:10px"><label for="agentInput">Agent ID (Cloud Mode)</label><input id="agentInput" type="text" placeholder="e.g. home-rgb-pc" /></div>
+            <div class="gridEq" style="grid-template-columns:1fr 1fr;margin-top:10px;gap:10px">
+              <div class="field"><label>Auto Refresh</label><div style="display:flex;justify-content:space-between;align-items:center"><div id="autoRefreshLabel" style="font-size:13px;font-weight:700">Enabled</div><button id="autoRefreshSwitch" class="switch on"><span></span></button></div></div>
+              <div class="field"><label for="refreshInterval">Refresh Seconds</label><input id="refreshInterval" type="number" min="2" max="60" step="1" value="8" /></div>
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px"><button id="saveSettingsBtn" class="btn btn-primary">Save Settings</button><button id="clearTokenBtn" class="btn btn-ghost">Clear Token</button><button id="toggleThemeBtn" class="btn btn-ghost">Toggle Theme</button></div>
+            <div id="healthSummary" class="field" style="margin-top:10px"><label>Health Summary</label><div class="muted">No health data yet.</div></div>
+          </div>
+          <div class="card">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><div><h3>Activity</h3><div class="muted">Recent actions and API results</div></div><button id="clearActivityBtn" class="btn btn-ghost">Clear</button></div>
+            <div id="activityList" class="list" style="margin-top:10px"></div>
+          </div>
+        </div>
+      </section>
+
+    <footer class="panel"><div style="padding:12px 16px;display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><span class="muted">Low-latency command deck with scene and pixel control</span><strong style="color:var(--ink)">DIF v3</strong></div></footer>
+    </main>
+  </div>
+
+  <script>
+    (function(){
+      const defaults={quick:[{name:"Sakura",rgb:[235,164,189],brightness:92},{name:"Linen",rgb:[245,232,214],brightness:100},{name:"Matcha",rgb:[171,214,193],brightness:86},{name:"Lavender",rgb:[217,204,232],brightness:78}],scenes:[{name:"Sakura Glow",rgb:[235,164,189],brightness:92,tag:"SCENE",source:"default",target:"scene"},{name:"Warm Linen",rgb:[245,232,214],brightness:100,tag:"SCENE",source:"default",target:"scene"},{name:"Matcha Mist",rgb:[171,214,193],brightness:86,tag:"SCENE",source:"default",target:"scene"},{name:"Moon Petal",rgb:[217,204,232],brightness:78,tag:"SCENE",source:"default",target:"scene"}]};
+      const HOST=(window.location.hostname||"").toLowerCase();
+      const CLOUD_MODE_VERCEL=/^difsync(?:-[a-z0-9-]+)?\.vercel\.app$/i.test(HOST);
+      const CLOUD_MODE_HOST=HOST==="difsync.com"||HOST==="www.difsync.com"||CLOUD_MODE_VERCEL;
+      const CLOUD_MODE_PATH=CLOUD_MODE_HOST||/\/(difsync2|prismnexus2)(\/|$)/i.test(window.location.pathname.toLowerCase());
+      const CLOUD_AGENT_ONLINE_MAX_AGE_S=35;
+      const state={page:"Dashboard",dark:false,rgb:[235,164,189],brightness:92,token:localStorage.getItem("difsync_token")||"",panelAgentId:localStorage.getItem("difsync_agent_id")||"",cloudMode:CLOUD_MODE_PATH,autoRefresh:(localStorage.getItem("difsync_auto_refresh")||"true")!=="false",refreshSeconds:parseInt(localStorage.getItem("difsync_refresh_seconds")||"8",10),selectedScene:"Sakura Glow",health:null,presets:[],pc:[],govee:[],pcSel:{},gvSel:{},logs:[]};
+      const PERF_MODE=(localStorage.getItem("difsync_perf_mode")||"1")!=="0";
+      const PETAL_COUNT=PERF_MODE?4:10;
+      let timer=null,refreshBusy=false,realtimePcTimer=null,realtimePcBusy=false,realtimePcQueuedPayload=null,realtimePcQueuedSig="",lastRealtimePcSig="",lastRealtimePcAt=0,realtimeIotTimer=null,realtimeIotBusy=false,realtimeIotQueuedPayload=null,realtimeIotQueuedSig="",lastRealtimeIotSig="",lastRealtimeIotAt=0;
+      const $=id=>document.getElementById(id);
+      const clamp=(n,min,max)=>Math.max(min,Math.min(max,Number(n)));
+      const hex=n=>clamp(Math.round(n),0,255).toString(16).padStart(2,"0").toUpperCase();
+      const rgbHex=rgb=>"#"+hex(rgb[0])+hex(rgb[1])+hex(rgb[2]);
+      function hexToRgb(h){if(!h||typeof h!=="string")return null;const x=h.replace("#","").trim();if(!/^[0-9a-fA-F]{6}$/.test(x))return null;return [parseInt(x.slice(0,2),16),parseInt(x.slice(2,4),16),parseInt(x.slice(4,6),16)];}
+      const mix=(a,b,t)=>Math.round(a+(b-a)*t);
+      const grad=rgb=>{const[r,g,b]=rgb;const c1=rgbHex([mix(r,255,.6),mix(g,255,.6),mix(b,255,.6)]);const c2=rgbHex([mix(r,255,.85),mix(g,245,.85),mix(b,250,.85)]);const c3=rgbHex([mix(r,235,.7),mix(g,235,.7),mix(b,240,.7)]);return"linear-gradient(135deg,"+c2+" 0%,"+c1+" 40%,"+c3+" 100%)"};
+      const now=()=>new Date().toLocaleTimeString();
+      function log(txt,lvl){state.logs.unshift({txt:String(txt||""),lvl:lvl||"info",at:now()});if(state.logs.length>80)state.logs=state.logs.slice(0,80);renderLogs();}
+      function headers(){const h={"Content-Type":"application/json"};if(state.cloudMode){if(state.token)h["X-Panel-Key"]=state.token;}else{if(state.token)h.Authorization="Bearer "+state.token;}return h;}
+      async function cloudCall(action,method,body,extraQuery){const query=new URLSearchParams({action:action});if(extraQuery){Object.keys(extraQuery).forEach(k=>query.set(k,String(extraQuery[k])));}const o={method:method||"GET",headers:headers()};if(body!==undefined)o.body=JSON.stringify(body);const r=await fetch("api.php?"+query.toString(),o);const p=await r.json().catch(()=>({}));if(!r.ok||p.ok===false)throw new Error(p.error||("HTTP "+r.status));return p;}
+      function parseSqlUtc(raw){const s=String(raw||"").trim();if(!s)return NaN;const t=Date.parse(s.replace(" ","T")+"Z");return Number.isFinite(t)?t:NaN;}
+      function agentAgeSeconds(row){const ts=parseSqlUtc(row&&row.last_seen);if(!Number.isFinite(ts))return Number.POSITIVE_INFINITY;return Math.max(0,(Date.now()-ts)/1000);}
+      function isOnlineAgent(row){if(!row||typeof row!=="object")return false;if(typeof row.online==="boolean")return row.online;return agentAgeSeconds(row)<=CLOUD_AGENT_ONLINE_MAX_AGE_S;}
+      async function ensureCloudAgent(){if(!state.token)throw new Error("Set Panel Key in Settings first.");const agents=await cloudCall("panel_list_agents","GET",undefined,{include_stale:1});const rows=Array.isArray(agents.agents)?agents.agents:[];const online=rows.filter(isOnlineAgent);if(!online.length)throw new Error("No online agent. Run DifSync.bat agent on your RGB PC.");if(!state.panelAgentId||!online.find(a=>String(a.id)===String(state.panelAgentId))){state.panelAgentId=String(online[0].id||"");localStorage.setItem("difsync_agent_id",state.panelAgentId);if($("agentInput"))$("agentInput").value=state.panelAgentId;}return online;}
+      function mapCloudPc(rows){return (Array.isArray(rows)?rows:[]).map(x=>({id:Number(x.id),name:x.name||"PC Device",type:x.type||"UNKNOWN",led:Number(x.led_count||0),driver:x.driver||"",note:x.note||"",write:x.write_supported!==false}));}
+      function mapCloudGovee(rows){return (Array.isArray(rows)?rows:[]).map(x=>({device:String(x.device||""),model:x.model||"",name:x.device_name||x.device||"Govee",ok:x.ok!==undefined?!!x.ok:(x.retrievable!==false)})).filter(x=>x.device);}
+      async function api(path,method,body){
+        if(!state.cloudMode){
+          const o={method:method||"GET",headers:headers()};if(body!==undefined)o.body=JSON.stringify(body);const r=await fetch(path,o);const p=await r.json().catch(()=>({}));if(!r.ok||p.ok===false)throw new Error(p.error||("HTTP "+r.status));return p;
+        }
+        const rows=await ensureCloudAgent();
+        if(path==="/api/health"){
+          const inv=await cloudCall("panel_get_inventory","GET",undefined,{agent_id:state.panelAgentId,auto_queue:1});
+          return {ok:true,pc_rgb_backend:"cloud-agent",token_required:true,govee_key_set:true,openrgb:{connected:true,error:"",device_count:Array.isArray((inv.inventory||{}).pc_devices)?inv.inventory.pc_devices.length:0},cloud:{agents:rows.length,selected_agent:state.panelAgentId,pending:!!inv.pending,status:inv.latest&&inv.latest.status||"",message:inv.latest&&inv.latest.message||""}};
+        }
+        if(path==="/api/openrgb/devices"){
+          const inv=await cloudCall("panel_get_inventory","GET",undefined,{agent_id:state.panelAgentId,auto_queue:1});
+          return {ok:true,devices:mapCloudPc((inv.inventory||{}).pc_devices||[])};
+        }
+        if(path==="/api/govee/devices"){
+          const inv=await cloudCall("panel_get_inventory","GET",undefined,{agent_id:state.panelAgentId,auto_queue:1});
+          return {ok:true,devices:mapCloudGovee((inv.inventory||{}).govee_devices||[])};
+        }
+        if(path==="/api/presets"){return {ok:true,presets:[]};}
+        if(path==="/api/scene/color"){
+          const payload=body||{};const pcIds=Array.isArray(payload.openrgb_device_ids)?payload.openrgb_device_ids:selPc();const gvIds=Array.isArray(payload.govee_device_ids)?payload.govee_device_ids:selGv();const cmd=await cloudCall("panel_send_command","POST",{agent_id:state.panelAgentId,target:"scene",replace_pending:true,payload:{rgb:payload.rgb||[0,0,0],brightness:payload.brightness??100,openrgb_device_ids:pcIds,govee_device_ids:gvIds}});
+          return {ok:true,openrgb:{changed:pcIds.length,skipped:[]},govee:gvIds.map(id=>({device:id,success:true,message:"queued"})),queued_command_id:cmd.command_id};
+        }
+        if(path==="/api/openrgb/color"){
+          const payload=body||{};const ids=Array.isArray(payload.device_ids)?payload.device_ids:selPc();const cmd=await cloudCall("panel_send_command","POST",{agent_id:state.panelAgentId,target:"openrgb",replace_pending:true,payload:{rgb:payload.rgb||[0,0,0],brightness:payload.brightness??100,device_ids:ids}});
+          return {ok:true,changed:ids.length,skipped:[],queued_command_id:cmd.command_id};
+        }
+        if(path==="/api/govee/color"){
+          const payload=body||{};const ids=Array.isArray(payload.device_ids)?payload.device_ids:selGv();const cmd=await cloudCall("panel_send_command","POST",{agent_id:state.panelAgentId,target:"govee",replace_pending:true,payload:{rgb:payload.rgb||[0,0,0],brightness:payload.brightness??100,device_ids:ids}});
+          return {ok:true,results:ids.map(id=>({device:id,success:true,message:"queued"})),queued_command_id:cmd.command_id};
+        }
+        if(path==="/api/presets/apply"){throw new Error("Cloud mode does not support server presets. Use Scene Apply.");}
+        if(path.startsWith("/api/presets/")&&method==="DELETE"){throw new Error("Cloud mode does not support preset delete.");}
+        if(path==="/api/presets"&&method==="POST"){throw new Error("Cloud mode does not support preset save.");}
+        throw new Error("Unsupported cloud action for "+path);
+      }
+      const SENSITIVE_PC_DRIVERS=new Set(["asus_aura_mainboard","corsair_ram_smbus_custom"]);
+      const selPc=()=>state.pc.filter(d=>state.pcSel[d.id]).map(d=>d.id);
+      const selGv=()=>state.govee.filter(d=>state.gvSel[d.device]).map(d=>d.device);
+      function hasSensitivePcSelection(){return state.pc.some(d=>state.pcSel[d.id]&&SENSITIVE_PC_DRIVERS.has(String(d.driver||"")));}
+      function pcRealtimeDelayMs(){if(state.cloudMode)return hasSensitivePcSelection()?280:180;return hasSensitivePcSelection()?240:110;}
+      function iotRealtimeDelayMs(){
+        if(!state.cloudMode)return 85;
+        const selected=Math.max(1,selGv().length||state.govee.length||1);
+        return Math.max(4200,selected*7000);
+      }
+      function scenePayload(){return {rgb:[state.rgb[0],state.rgb[1],state.rgb[2]],brightness:state.brightness,openrgb_device_ids:selPc(),govee_device_ids:selGv()};}
+      function pcPayloadFromScene(p){return {rgb:[p.rgb[0],p.rgb[1],p.rgb[2]],brightness:p.brightness,device_ids:Array.isArray(p.openrgb_device_ids)?p.openrgb_device_ids:[]};}
+      function iotPayloadFromScene(p){return {rgb:[p.rgb[0],p.rgb[1],p.rgb[2]],brightness:p.brightness,device_ids:Array.isArray(p.govee_device_ids)?p.govee_device_ids:[]};}
+      function pcSignatureFromPayload(p){return p.rgb.join(",")+"|"+p.brightness+"|"+(Array.isArray(p.device_ids)?p.device_ids:[]).join(",");}
+      function iotSignatureFromPayload(p){return p.rgb.join(",")+"|"+p.brightness+"|"+(Array.isArray(p.device_ids)?p.device_ids:[]).join(",");}
+      function realtimeSignature(){const p=scenePayload();return pcSignatureFromPayload(pcPayloadFromScene(p))+"||"+iotSignatureFromPayload(iotPayloadFromScene(p));}
+      async function flushRealtimePcApply(){if(realtimePcBusy)return;realtimePcBusy=true;try{while(realtimePcQueuedPayload){const payload=realtimePcQueuedPayload;const sig=realtimePcQueuedSig;realtimePcQueuedPayload=null;realtimePcQueuedSig="";const t=Date.now();if(sig===lastRealtimePcSig&&(t-lastRealtimePcAt)<220)continue;lastRealtimePcSig=sig;lastRealtimePcAt=t;await applyPc(true,payload,true);}}finally{realtimePcBusy=false;if(realtimePcQueuedPayload)flushRealtimePcApply();}}
+      async function flushRealtimeIotApply(){if(realtimeIotBusy)return;realtimeIotBusy=true;try{while(realtimeIotQueuedPayload){const payload=realtimeIotQueuedPayload;const sig=realtimeIotQueuedSig;realtimeIotQueuedPayload=null;realtimeIotQueuedSig="";const t=Date.now();if(sig===lastRealtimeIotSig&&(t-lastRealtimeIotAt)<1000)continue;lastRealtimeIotSig=sig;lastRealtimeIotAt=t;await applyGovee(true,payload,true);}}finally{realtimeIotBusy=false;if(realtimeIotQueuedPayload)flushRealtimeIotApply();}}
+      function queueRealtimePcApply(scene){const payload=pcPayloadFromScene(scene);if(!payload.device_ids.length){realtimePcQueuedPayload=null;realtimePcQueuedSig="";if(realtimePcTimer){clearTimeout(realtimePcTimer);realtimePcTimer=null;}return;}if(realtimePcTimer){clearTimeout(realtimePcTimer);}realtimePcTimer=setTimeout(()=>{realtimePcTimer=null;realtimePcQueuedPayload=payload;realtimePcQueuedSig=pcSignatureFromPayload(payload);flushRealtimePcApply();},pcRealtimeDelayMs());}
+      function queueRealtimeIotApply(scene){const payload=iotPayloadFromScene(scene);if(!payload.device_ids.length){realtimeIotQueuedPayload=null;realtimeIotQueuedSig="";if(realtimeIotTimer){clearTimeout(realtimeIotTimer);realtimeIotTimer=null;}return;}if(realtimeIotTimer){clearTimeout(realtimeIotTimer);}realtimeIotTimer=setTimeout(()=>{realtimeIotTimer=null;realtimeIotQueuedPayload=payload;realtimeIotQueuedSig=iotSignatureFromPayload(payload);flushRealtimeIotApply();},iotRealtimeDelayMs());}
+      function queueRealtimeApply(){const payload=scenePayload();queueRealtimePcApply(payload);queueRealtimeIotApply(payload);}
+      async function loadHealth(){const d=await api("/api/health");state.health=d;renderHealth();}
+      async function loadPc(){const d=await api("/api/openrgb/devices");state.pc=(Array.isArray(d.devices)?d.devices:[]).map(x=>({id:Number(x.id),name:x.name||"PC Device",type:x.type||"UNKNOWN",led:Number(x.led_count||0),driver:x.driver||"",note:x.note||"",write:x.write_supported!==false}));const n={};state.pc.forEach(x=>n[x.id]=state.pcSel[x.id]!==undefined?state.pcSel[x.id]:x.write);state.pcSel=n;renderPc();window.dispatchEvent(new CustomEvent("difsync-pc-devices-loaded",{detail:{devices:state.pc.slice(),selected:selPc()}}));}
+      async function loadGovee(){const d=await api("/api/govee/devices");state.govee=(Array.isArray(d.devices)?d.devices:[]).map(x=>({device:String(x.device||""),model:x.model||"",name:x.device_name||x.device||"Govee",ok:x.ok!==undefined?!!x.ok:(x.retrievable!==false)})).filter(x=>x.device);const n={};state.govee.forEach(x=>n[x.device]=state.gvSel[x.device]!==undefined?state.gvSel[x.device]:x.ok);state.gvSel=n;renderGovee();}
+      async function loadPresets(){const d=await api("/api/presets");state.presets=Array.isArray(d.presets)?d.presets:[];renderScenes();}
+      async function refreshAll(silent){if(refreshBusy)return;refreshBusy=true;try{await Promise.all([loadHealth(),loadPc(),loadGovee(),loadPresets()]);if(!silent)log("Devices and health refreshed.");}catch(e){log("Refresh failed: "+(e.message||e),"bad")}finally{refreshBusy=false}}
+      async function applyAll(silent,payload){const req=payload||scenePayload();try{const d=await api("/api/scene/color","POST",req);const pcChanged=Number((d.openrgb&&d.openrgb.changed)||0);const pcSkip=Array.isArray(d.openrgb&&d.openrgb.skipped)?d.openrgb.skipped.length:0;const gv=Array.isArray(d.govee)?d.govee:[];const gvOk=gv.filter(x=>x.success!==undefined?x.success:!!x.ok).length;if(pcSkip && !silent)log("PC RGB skips: "+(d.openrgb.skipped||[]).map(s=>(s.name||s.id)+": "+s.error).join(" | "),"bad");if(!silent)log("Scene "+rgbHex(req.rgb)+" -> PC "+pcChanged+" changed, "+pcSkip+" skipped; Govee "+gvOk+"/"+gv.length+".");}catch(e){log("Apply all failed: "+(e.message||e),"bad")}}
+      async function applyPc(only,payload,silent){try{const src=payload||{rgb:[state.rgb[0],state.rgb[1],state.rgb[2]],brightness:state.brightness,device_ids:selPc()};const rgb=Array.isArray(src.rgb)?[src.rgb[0],src.rgb[1],src.rgb[2]]:[state.rgb[0],state.rgb[1],state.rgb[2]];const b={rgb:rgb,brightness:src.brightness??state.brightness};if(only)b.device_ids=Array.isArray(src.device_ids)?src.device_ids:selPc();const d=await api("/api/openrgb/color","POST",b);const s=Array.isArray(d.skipped)?d.skipped:[];if(s.length&&!silent)log("PC RGB skips: "+s.map(x=>(x.name||x.id)+": "+x.error).join(" | "),"bad");if(!silent)log("PC RGB "+rgbHex(rgb)+" -> "+Number(d.changed||0)+" changed, "+s.length+" skipped.");}catch(e){if(!silent)log("Apply PC failed: "+(e.message||e),"bad")}}
+      async function applyGovee(only,payload,silent){try{const src=payload||{rgb:[state.rgb[0],state.rgb[1],state.rgb[2]],brightness:state.brightness,device_ids:selGv()};const rgb=Array.isArray(src.rgb)?[src.rgb[0],src.rgb[1],src.rgb[2]]:[state.rgb[0],state.rgb[1],state.rgb[2]];const b={rgb:rgb,brightness:src.brightness??state.brightness};if(only)b.device_ids=Array.isArray(src.device_ids)?src.device_ids:selGv();const d=await api("/api/govee/color","POST",b);const r=Array.isArray(d.results)?d.results:[];const ok=r.filter(x=>x.success!==undefined?x.success:!!x.ok).length;const bad=r.filter(x=>x.success!==undefined?!x.success:!x.ok);if(bad.length&&!silent)log("Govee skips: "+bad.map(x=>(x.device||"device")+": "+x.message).join(" | "),"bad");if(!silent)log("Govee "+rgbHex(rgb)+" -> "+ok+"/"+r.length+" success.");}catch(e){if(!silent)log("Apply IoT failed: "+(e.message||e),"bad")}}
+      async function applyPreset(name){try{const d=await api("/api/presets/apply","POST",{name:name});const pc=Number((d.openrgb&&d.openrgb.changed)||0);const skip=Array.isArray(d.openrgb&&d.openrgb.skipped)?d.openrgb.skipped.length:0;const gv=Array.isArray(d.govee)?d.govee:[];const gOk=gv.filter(x=>x.success).length;log("Preset applied: "+name+" -> PC "+pc+" changed, "+skip+" skipped; Govee "+gOk+"/"+gv.length+".");}catch(e){log("Preset apply failed: "+(e.message||e),"bad")}}
+      async function savePreset(){const name=(($("sceneNameInput").value)||"").trim();if(!name){log("Preset name is required.","bad");return;}const payload={name:name,rgb:state.rgb,brightness:state.brightness,target:$("sceneTarget").value||"scene",openrgb_device_ids:selPc(),govee_device_ids:selGv()};try{await api("/api/presets","POST",payload);$("sceneNameInput").value="";log("Preset saved: "+name+".");await loadPresets();}catch(e){log("Save preset failed: "+(e.message||e),"bad")}}
+      async function delPreset(name){try{await api("/api/presets/"+encodeURIComponent(name),"DELETE");log("Preset deleted: "+name+".");await loadPresets();}catch(e){log("Delete preset failed: "+(e.message||e),"bad")}}
+
+      function setPage(p){state.page=p;document.querySelectorAll(".nav button").forEach(b=>b.classList.toggle("active",b.dataset.page===p));document.querySelectorAll(".page").forEach(x=>x.classList.toggle("active",x.id==="page-"+p));$("pageTitle").textContent=p;}
+      function setTheme(v){state.dark=!!v;document.body.classList.toggle("theme-dark",state.dark);localStorage.setItem("difsync_dark",state.dark?"1":"0");$("themeToggle").textContent=state.dark?"Light":"Dark";}
+      function renderHealth(err){$("autoRefreshChip").textContent=state.autoRefresh?("Auto refresh ("+state.refreshSeconds+"s)"):"Auto refresh off";if(err){$("healthSummary").innerHTML="<label>Health Summary</label><div class='bad'>"+err+"</div>";return;}if(!state.health){$("healthSummary").innerHTML="<label>Health Summary</label><div class='muted'>No health data yet.</div>";return;}const h=state.health;const conn=h.openrgb&&h.openrgb.connected;const count=(h.openrgb&&h.openrgb.device_count)||0;const backend=h.pc_rgb_backend||"unknown";const gk=h.govee_key_set?"set":"missing";const tk=h.token_required?"required":"not required";let html="<label>Health Summary</label><div><b>PC backend:</b> "+backend+"</div><div><b>OpenRGB/native:</b> <span class='"+(conn?"ok":"bad")+"'>"+(conn?"connected":"disconnected")+"</span> ("+count+" devices)</div><div><b>Govee key:</b> "+gk+"</div><div><b>Dashboard token:</b> "+tk+"</div>";if(h.cloud){html+="<div><b>Cloud agent:</b> "+(h.cloud.selected_agent||"-")+"</div><div><b>Agents online:</b> "+Number(h.cloud.agents||0)+"</div><div><b>Inventory status:</b> "+(h.cloud.status||"pending")+(h.cloud.pending?" (pending)":"")+"</div>";if(h.cloud.message){html+="<div><b>Agent message:</b> "+h.cloud.message+"</div>";}}$("healthSummary").innerHTML=html;}
+      function renderColor(){const h=rgbHex(state.rgb);$("currentSwatch").style.background=h;$("currentHex").textContent=h;$("currentBrightness").textContent=state.brightness+"%";$("previewHex").textContent=h;$("previewRgb").textContent="RGB "+state.rgb.join(", ");$("previewBrightness").textContent="Brightness "+state.brightness+"%";$("previewCard").style.background=grad(state.rgb);$("createPreviewText").textContent=h+" - "+state.brightness+"%";$("createPreviewBar").style.background=grad(state.rgb);if($("liveColorPicker")&&$("liveColorPicker").value!==h){$("liveColorPicker").value=h;}document.documentElement.style.setProperty("--accent",h);}
+      function mkSlider(label,key,max){const val=key==="brightness"?state.brightness:state.rgb[key];const w=document.createElement("div");w.className="slider";const r=document.createElement("div");r.className="srow";const a=document.createElement("div");a.textContent=label;const b=document.createElement("div");b.textContent=String(val);b.style.fontWeight="700";b.style.color="var(--ink)";r.appendChild(a);r.appendChild(b);const t=document.createElement("div");t.className="track";const f=document.createElement("div");f.className="fill";f.style.width=Math.round((val/max)*100)+"%";const i=document.createElement("input");i.type="range";i.min="0";i.max=String(max);i.value=String(val);i.addEventListener("input",()=>{const n=clamp(i.value,0,max);if(key==="brightness")state.brightness=n;else state.rgb[key]=n;b.textContent=String(n);f.style.width=Math.round((n/max)*100)+"%";renderColor();queueRealtimeApply();});t.appendChild(f);t.appendChild(i);w.appendChild(r);w.appendChild(t);return w;}
+      function renderSliders(){$("slidersWrap").innerHTML="";$("slidersWrap").appendChild(mkSlider("Red",0,255));$("slidersWrap").appendChild(mkSlider("Green",1,255));$("slidersWrap").appendChild(mkSlider("Blue",2,255));$("slidersWrap").appendChild(mkSlider("Brightness","brightness",100));}
+      function renderQuick(){const host=$("quickPresetList");host.innerHTML="";defaults.quick.forEach(p=>{const h=rgbHex(p.rgb);const b=document.createElement("button");b.className="item";b.style.cursor="pointer";b.innerHTML="<div class='top'><div><div class='name'>"+p.name+"</div><div class='meta'>"+h+"</div></div><span style='width:10px;height:10px;border-radius:50%;border:1px solid var(--line);background:"+h+"'></span></div>";b.addEventListener("click",()=>{state.rgb=[p.rgb[0],p.rgb[1],p.rgb[2]];state.brightness=p.brightness;renderColor();renderSliders();queueRealtimeApply();});host.appendChild(b);});}
+      function sceneRows(hostId){return document.getElementById(hostId)}
+      function mergedScenes(){const n={};const out=[];defaults.scenes.forEach(s=>{n[s.name.toLowerCase()]=1;out.push(Object.assign({},s));});state.presets.forEach(p=>{const s={name:p.name,rgb:Array.isArray(p.rgb)?p.rgb:[255,255,255],brightness:Number(p.brightness||100),tag:String(p.target||"scene").toUpperCase(),source:"server",target:p.target||"scene",openrgb_device_ids:p.openrgb_device_ids||[],govee_device_ids:p.govee_device_ids||[]};if(!n[s.name.toLowerCase()])out.push(s);});return out;}
+      function mkScene(s){const active=state.selectedScene===s.name;const h=rgbHex(s.rgb);const d=document.createElement("div");d.className="item"+(active?" active":"");d.style.background=grad(s.rgb);d.innerHTML="<div class='top'><div><div class='name'>"+s.name+"</div><div class='meta'>"+s.tag+" | RGB "+s.rgb.join(", ")+" | "+s.brightness+"%</div></div><div style='display:flex;gap:6px;align-items:center'><span class='badge'>"+(active?"ACTIVE":"SCENE")+"</span></div></div><div style='display:flex;gap:8px;flex-wrap:wrap;margin-top:8px'><button class='btn btn-ghost sel'>Select</button><button class='btn btn-primary app'>Apply</button>"+(s.source==="server"?"<button class='btn btn-danger del'>Delete</button>":"")+"</div>";
+        d.querySelector(".sel").addEventListener("click",()=>{state.selectedScene=s.name;state.rgb=[s.rgb[0],s.rgb[1],s.rgb[2]];state.brightness=Number(s.brightness||100);renderColor();renderSliders();renderScenes();queueRealtimeApply();});
+        d.querySelector(".app").addEventListener("click",async()=>{state.selectedScene=s.name;state.rgb=[s.rgb[0],s.rgb[1],s.rgb[2]];state.brightness=Number(s.brightness||100);renderColor();renderSliders();if(s.source==="server")await applyPreset(s.name);else await applyAll();renderScenes();});
+        const del=d.querySelector(".del");if(del)del.addEventListener("click",()=>delPreset(s.name));
+        return d;
+      }
+      function renderScenes(){const a=sceneRows("dashboardScenes"),b=sceneRows("sceneLibrary");a.innerHTML="";b.innerHTML="";mergedScenes().forEach(s=>{a.appendChild(mkScene(s));b.appendChild(mkScene(s));});}
+      function mkDevice(d,sel,isGovee){const row=document.createElement("button");row.className="item"+(sel?" selected":"");row.style.cursor="pointer";if(!isGovee){row.setAttribute("data-device-id",String(d.id));}const stat=isGovee?(d.ok?"reachable":"unverified"):(d.write?"writable":"read-only");const sub=isGovee?(d.model+" | "+d.device):(d.type+" | LEDs "+d.led+(d.driver?(" | "+d.driver):""));const note=isGovee?"":(d.note||"");row.innerHTML="<div class='top'><div><div class='name'>"+(isGovee?d.name:d.name)+"</div><div class='meta'>"+sub+"</div>"+(note?"<div class='meta'>"+note+"</div>":"")+"</div><span class='badge'>"+(sel?"Selected":"Tap")+"</span></div><div style='margin-top:6px' class='meta'>"+stat+"</div><div style='margin-top:8px;height:8px;border-radius:99px;border:1px solid var(--line);background:#f3eef2;overflow:hidden'><span style='display:block;height:100%;width:62%;background:linear-gradient(90deg,var(--accent),rgba(0,0,0,.1))'></span></div>";
+        row.addEventListener("click",()=>{if(isGovee){state.gvSel[d.device]=!state.gvSel[d.device];renderGovee();}else{state.pcSel[d.id]=!state.pcSel[d.id];renderPc();window.dispatchEvent(new CustomEvent("difsync-pc-selection",{detail:{ids:selPc()}}));if(state.pcSel[d.id]){window.dispatchEvent(new CustomEvent("difsync-pixel-focus-device",{detail:{id:Number(d.id)}}));}}queueRealtimeApply();});
+        return row;
+      }
+      function renderPc(){const h=$("pcDeviceList");h.innerHTML="";if(!state.pc.length){h.innerHTML="<div class='item'><div class='meta'>No PC devices found.</div></div>";return;}state.pc.forEach(d=>h.appendChild(mkDevice(d,!!state.pcSel[d.id],false)));}
+      function renderGovee(){const h=$("goveeDeviceList");h.innerHTML="";if(!state.govee.length){h.innerHTML="<div class='item'><div class='meta'>No Govee devices configured in config.json.</div></div>";return;}state.govee.forEach(d=>h.appendChild(mkDevice(d,!!state.gvSel[d.device],true)));}
+      function renderLogs(){const h=$("activityList");h.innerHTML="";if(!state.logs.length){h.innerHTML="<div class='item'><div class='meta'>No activity yet.</div></div>";return;}state.logs.forEach(x=>{const d=document.createElement("div");d.className="item";d.innerHTML="<div class='top'><div class='name'>"+x.at+"</div><span class='badge'>"+x.lvl.toUpperCase()+"</span></div><div class='meta'>"+x.txt+"</div>";h.appendChild(d);});}
+      function schedule(){if(timer)clearInterval(timer);if(!state.autoRefresh)return;timer=setInterval(()=>refreshAll(true),Math.max(3000,state.refreshSeconds*1000));}
+
+      function petals(){const p=$("petals");if(!p)return;const reduce=window.matchMedia&&window.matchMedia("(prefers-reduced-motion: reduce)").matches;p.innerHTML="";if(reduce)return;for(let i=0;i<PETAL_COUNT;i++){const e=document.createElement("div");e.className="petal";e.style.left=((i*97)%100)+"%";e.style.opacity=String(.18+(i%4)*.08);e.style.transform="scale("+(.58+(i%4)*.22)+")";e.style.animationDuration=(14+(i%5)*10)+"s";e.style.animationDelay=((i%6)*1.1)+"s";p.appendChild(e);}}
+
+      function bind(){document.querySelectorAll(".nav button").forEach(b=>b.addEventListener("click",()=>setPage(b.dataset.page)));
+        $("themeToggle").addEventListener("click",()=>setTheme(!state.dark));$("toggleThemeBtn").addEventListener("click",()=>setTheme(!state.dark));
+        $("sidebarRefresh").addEventListener("click",()=>refreshAll());$("healthBtn").addEventListener("click",()=>refreshAll());
+        $("sidebarApply").addEventListener("click",()=>applyAll());$("applyAllBtn").addEventListener("click",()=>applyAll());$("applyPcBtn").addEventListener("click",()=>applyPc(false));$("applyIotBtn").addEventListener("click",()=>applyGovee(false));
+        if($("liveColorPicker")){$("liveColorPicker").addEventListener("input",()=>{const rgb=hexToRgb($("liveColorPicker").value);if(!rgb)return;state.rgb=[rgb[0],rgb[1],rgb[2]];renderColor();renderSliders();queueRealtimeApply();});}
+        $("allOffBtn").addEventListener("click",()=>{state.brightness=0;renderColor();renderSliders();applyAll();});
+        $("pcApplySelected").addEventListener("click",()=>applyPc(true));$("iotApplySelected").addEventListener("click",()=>applyGovee(true));
+        $("pcSelectAll").addEventListener("click",()=>{state.pc.forEach(d=>state.pcSel[d.id]=true);renderPc();window.dispatchEvent(new CustomEvent("difsync-pc-selection",{detail:{ids:selPc()}}));queueRealtimeApply();});$("pcClear").addEventListener("click",()=>{state.pc.forEach(d=>state.pcSel[d.id]=false);renderPc();window.dispatchEvent(new CustomEvent("difsync-pc-selection",{detail:{ids:selPc()}}));queueRealtimeApply();});
+        $("iotSelectAll").addEventListener("click",()=>{state.govee.forEach(d=>state.gvSel[d.device]=true);renderGovee();queueRealtimeApply();});$("iotClear").addEventListener("click",()=>{state.govee.forEach(d=>state.gvSel[d.device]=false);renderGovee();queueRealtimeApply();});
+        $("saveSceneBtn").addEventListener("click",()=>savePreset());$("applyCurrentSceneBtn").addEventListener("click",()=>applyAll());
+        $("autoRefreshSwitch").addEventListener("click",()=>{state.autoRefresh=!state.autoRefresh;$("autoRefreshSwitch").classList.toggle("on",state.autoRefresh);$("autoRefreshLabel").textContent=state.autoRefresh?"Enabled":"Disabled";localStorage.setItem("difsync_auto_refresh",state.autoRefresh?"true":"false");renderHealth();schedule();});
+        $("saveSettingsBtn").addEventListener("click",()=>{state.token=$("tokenInput").value.trim();state.panelAgentId=$("agentInput").value.trim();state.refreshSeconds=clamp($("refreshInterval").value,2,60);localStorage.setItem("difsync_token",state.token);localStorage.setItem("difsync_agent_id",state.panelAgentId||"");localStorage.setItem("difsync_refresh_seconds",String(state.refreshSeconds));renderHealth();schedule();log("Settings saved.");refreshAll(true);});
+        $("clearTokenBtn").addEventListener("click",()=>{state.token="";$("tokenInput").value="";localStorage.removeItem("difsync_token");log(state.cloudMode?"Panel key cleared.":"Token cleared.");renderHealth();});
+        $("clearActivityBtn").addEventListener("click",()=>{state.logs=[];renderLogs();});
+        window.addEventListener("difsync-pc-select-device",(ev)=>{const id=Number(ev&&ev.detail&&ev.detail.id);if(!Number.isFinite(id))return;if(state.pc.some(d=>d.id===id)){state.pcSel[id]=true;renderPc();}});
+      }
+
+      async function init(){setTheme((localStorage.getItem("difsync_dark")||"0")==="1");petals();renderQuick();renderSliders();renderColor();renderLogs();
+        $("tokenInput").value=state.token;$("agentInput").value=state.panelAgentId;$("refreshInterval").value=String(state.refreshSeconds);$("autoRefreshSwitch").classList.toggle("on",state.autoRefresh);$("autoRefreshLabel").textContent=state.autoRefresh?"Enabled":"Disabled";if(state.cloudMode){document.querySelector("label[for='tokenInput']").textContent="Panel Key";$("tokenInput").placeholder="Paste panel key";$("agentInput").placeholder="Auto-select online agent";}
+      bind();await refreshAll(true);schedule();log("DIF dashboard ready.");}
+
+      init();
+    })();
+  </script>
+  <script>
+    (function(){
+      const host = (window.location.hostname || "").toLowerCase();
+      const cloudMode = host==="difsync.com"||host==="www.difsync.com"||/^difsync(?:-[a-z0-9-]+)?\.vercel\.app$/i.test(host)||/\/(difsync2|prismnexus2)(\/|$)/i.test(window.location.pathname.toLowerCase());
+      const byId = (id) => document.getElementById(id);
+      const tokenInput = byId("tokenInput");
+      const card = byId("pixelLabCard");
+      if (!card) return;
+
+      const state = {
+        devices: [],
+        deviceId: null,
+        layout: null,
+        pixels: [],
+        selected: -1,
+        paintDown: false,
+        pushTimer: null,
+      };
+      let renderQueued = false;
+
+      const els = {
+        device: byId("pixelDeviceSelect"),
+        gallery: byId("pixelDeviceGallery"),
+        segment: byId("pixelSegmentSelect"),
+        brush: byId("pixelBrushColor"),
+        bright: byId("pixelBrightness"),
+        brightVal: byId("pixelBrightnessVal"),
+        auto: byId("pixelAutoPush"),
+        grid: byId("pixelGrid"),
+        meta: byId("pixelMeta"),
+        status: byId("pixelStatus"),
+        note: byId("pixelAnimNote"),
+        animEffect: byId("pixelAnimEffect"),
+        animInterval: byId("pixelAnimInterval"),
+        palette: byId("pixelPalette"),
+        viewMode: byId("pixelViewMode"),
+        nzxtPanel: byId("pixelNzxtPanel"),
+      };
+
+      function getToken() {
+        const v = tokenInput && tokenInput.value ? tokenInput.value.trim() : "";
+        return v || localStorage.getItem("difsync_token") || "";
+      }
+
+      function clampByte(n) {
+        return Math.max(0, Math.min(255, Number(n) || 0));
+      }
+
+      function hexToRgb(hex) {
+        const s = String(hex || "").replace("#", "").trim();
+        if (!/^[0-9a-fA-F]{6}$/.test(s)) return [255, 255, 255];
+        return [parseInt(s.slice(0, 2), 16), parseInt(s.slice(2, 4), 16), parseInt(s.slice(4, 6), 16)];
+      }
+
+      function rgbToHex(rgb) {
+        const to = (v) => clampByte(v).toString(16).padStart(2, "0").toUpperCase();
+        return "#" + to(rgb[0]) + to(rgb[1]) + to(rgb[2]);
+      }
+
+      function headers() {
+        const h = { "Content-Type": "application/json" };
+        const token = getToken();
+        if (!token) return h;
+        if (cloudMode) h["X-Panel-Key"] = token;
+        else h.Authorization = "Bearer " + token;
+        return h;
+      }
+
+      async function api(path, method, body) {
+        const resp = await fetch(path, {
+          method: method || "GET",
+          headers: headers(),
+          body: body === undefined ? undefined : JSON.stringify(body),
+        });
+        const payload = await resp.json().catch(() => ({}));
+        if (!resp.ok || payload.ok === false) {
+          throw new Error(payload.error || ("HTTP " + resp.status));
+        }
+        return payload;
+      }
+
+      function setStatus(msg, isBad) {
+        if (!els.status) return;
+        els.status.textContent = String(msg || "");
+        els.status.className = isBad ? "bad" : "ok";
+      }
+
+      function setMeta(msg) {
+        if (els.meta) els.meta.textContent = String(msg || "");
+      }
+
+      function queueRender() {
+        if (renderQueued) return;
+        renderQueued = true;
+        window.requestAnimationFrame(() => {
+          renderQueued = false;
+          renderGrid();
+          renderNzxtPanel();
+        });
+      }
+
+      function selectedDevice() {
+        return state.devices.find((d) => Number(d.id) === Number(state.deviceId)) || null;
+      }
+
+      function deviceArtFor(dev) {
+        const driver = String((dev && dev.driver) || "").toLowerCase();
+        if (driver.includes("corsair")) return { mark: "CM", lane: "RAM", logo: "https://cdn.simpleicons.org/corsair/111111" };
+        if (driver.includes("asus")) return { mark: "ROG", lane: "BOARD", logo: "https://cdn.simpleicons.org/asus/111111" };
+        if (driver.includes("nzxt")) return { mark: "NZXT", lane: "HUB", logo: "https://cdn.simpleicons.org/nzxt/111111" };
+        if (driver.includes("steelseries")) return { mark: "SS", lane: "PERI", logo: "https://cdn.simpleicons.org/steelseries/111111" };
+        return { mark: "RGB", lane: "DEVICE", logo: "https://cdn.simpleicons.org/openrgb/111111" };
+      }
+
+      function isNzxtDevice(dev) {
+        const driver = String((dev && dev.driver) || "").toLowerCase();
+        return driver.includes("nzxt");
+      }
+
+      function splitFanUnits(count) {
+        const total = Math.max(0, Number(count || 0));
+        const candidates = [24, 20, 18, 14, 10, 8, 6];
+        for (const unit of candidates) {
+          if (total >= unit && total % unit === 0) {
+            const parts = total / unit;
+            if (parts >= 1 && parts <= 6) return new Array(parts).fill(unit);
+          }
+        }
+        return [total];
+      }
+
+      function buildNzxtTopology(layout) {
+        const segments = layout && Array.isArray(layout.segments) ? layout.segments : [];
+        return segments.map((seg, idx) => {
+          const count = Math.max(0, Number(seg.count || 0));
+          const start = Math.max(0, Number(seg.start || 0));
+          const units = splitFanUnits(count);
+          const ports = [];
+          let offset = 0;
+          units.forEach((u, i) => {
+            if (u <= 0) return;
+            ports.push({
+              label: "Fan " + (i + 1),
+              start: start + offset,
+              count: u,
+            });
+            offset += u;
+          });
+          if (offset < count) {
+            ports.push({ label: "Strip", start: start + offset, count: count - offset });
+          }
+          return {
+            label: String(seg.label || ("Connector " + (idx + 1))),
+            count,
+            start,
+            ports,
+          };
+        });
+      }
+
+      function renderNzxtPanel() {
+        const host = els.nzxtPanel;
+        if (!host) return;
+        host.innerHTML = "";
+
+        const dev = selectedDevice();
+        const view = String(els.viewMode && els.viewMode.value ? els.viewMode.value : "hybrid");
+        const showRings = view !== "grid";
+        const showGrid = view !== "rings";
+        if (els.grid) els.grid.style.display = showGrid ? "grid" : "none";
+
+        if (!dev || !isNzxtDevice(dev) || !state.layout || !showRings) {
+          host.style.display = "none";
+          return;
+        }
+
+        const topology = buildNzxtTopology(state.layout);
+        if (!topology.length) {
+          host.style.display = "none";
+          return;
+        }
+
+        host.style.display = "grid";
+        topology.forEach((conn, cidx) => {
+          const card = document.createElement("div");
+          card.className = "nzxt-connector";
+
+          const head = document.createElement("div");
+          head.className = "nzxt-connector-head";
+          const title = document.createElement("div");
+          title.className = "nzxt-connector-title";
+          title.textContent = conn.label;
+          const meta = document.createElement("div");
+          meta.className = "muted";
+          meta.textContent = "LEDs " + conn.count;
+          head.appendChild(title);
+          head.appendChild(meta);
+          card.appendChild(head);
+
+          const ports = document.createElement("div");
+          ports.className = "nzxt-ports";
+
+          conn.ports.forEach((port) => {
+            const p = document.createElement("div");
+            p.className = "nzxt-port";
+            const n = document.createElement("div");
+            n.className = "nzxt-port-name";
+            n.textContent = port.label + " (" + port.count + ")";
+            p.appendChild(n);
+
+            const ring = document.createElement("div");
+            ring.className = "nzxt-ring";
+            const core = document.createElement("div");
+            core.className = "nzxt-ring-core";
+            core.textContent = "NZXT";
+            ring.appendChild(core);
+
+            const ledCount = Math.max(1, Number(port.count || 1));
+            for (let i = 0; i < ledCount; i += 1) {
+              const globalIndex = Number(port.start) + i;
+              const ang = ((Math.PI * 2 * i) / ledCount) - Math.PI / 2;
+              const radius = 44;
+              const cx = 63 + Math.cos(ang) * radius;
+              const cy = 63 + Math.sin(ang) * radius;
+              const led = document.createElement("button");
+              led.type = "button";
+              led.className = "nzxt-led" + (globalIndex === state.selected ? " sel" : "");
+              led.style.left = Math.round(cx - 5) + "px";
+              led.style.top = Math.round(cy - 5) + "px";
+              const px = state.pixels[globalIndex] || [0, 0, 0];
+              led.style.background = rgbToHex(px);
+              led.title = conn.label + " / " + port.label + " / LED " + i;
+              led.addEventListener("pointerdown", (e) => {
+                e.preventDefault();
+                state.paintDown = true;
+                state.selected = globalIndex;
+                paintLed(globalIndex);
+              });
+              led.addEventListener("pointerenter", () => {
+                if (state.paintDown) paintLed(globalIndex);
+              });
+              ring.appendChild(led);
+            }
+
+            p.appendChild(ring);
+            ports.appendChild(p);
+          });
+
+          card.appendChild(ports);
+          host.appendChild(card);
+        });
+      }
+
+      function renderDevices() {
+        const select = els.device;
+        const gallery = els.gallery;
+        if (!select && !gallery) return;
+
+        if (select) select.innerHTML = "";
+        if (gallery) gallery.innerHTML = "";
+
+        if (!state.devices.length) {
+          if (select) {
+            const opt = document.createElement("option");
+            opt.value = "";
+            opt.textContent = "No per-LED device found";
+            select.appendChild(opt);
+          }
+          if (gallery) {
+            const empty = document.createElement("div");
+            empty.className = "muted";
+            empty.textContent = "No per-LED devices found.";
+            gallery.appendChild(empty);
+          }
+          state.deviceId = null;
+          return;
+        }
+
+        if (!state.deviceId || !state.devices.find((d) => Number(d.id) === Number(state.deviceId))) {
+          state.deviceId = Number(state.devices[0].id);
+        }
+
+        state.devices.forEach((dev) => {
+          if (select) {
+            const opt = document.createElement("option");
+            opt.value = String(dev.id);
+            opt.textContent = dev.name + " (" + (dev.driver || "driver") + ")";
+            select.appendChild(opt);
+          }
+
+          if (gallery) {
+            const art = deviceArtFor(dev);
+            const isActive = Number(dev.id) === Number(state.deviceId);
+            const btn = document.createElement("button");
+            btn.className = "pixel-device" + (isActive ? " active" : "");
+            btn.type = "button";
+            const head = document.createElement("div");
+            head.className = "pixel-device-head";
+            const artBox = document.createElement("div");
+            artBox.className = "pixel-device-art";
+            const logo = document.createElement("img");
+            logo.className = "pixel-logo";
+            logo.alt = art.mark + " logo";
+            logo.referrerPolicy = "no-referrer";
+            logo.src = art.logo;
+            logo.addEventListener("error", () => {
+              artBox.textContent = art.mark;
+            });
+            artBox.appendChild(logo);
+
+            const copy = document.createElement("div");
+            const name = document.createElement("div");
+            name.className = "pixel-device-name";
+            name.textContent = String(dev.name || "Device");
+            const lane = document.createElement("div");
+            lane.className = "pixel-device-sub";
+            lane.textContent = String(art.lane);
+            copy.appendChild(name);
+            copy.appendChild(lane);
+            head.appendChild(artBox);
+            head.appendChild(copy);
+            btn.appendChild(head);
+
+            const meta = document.createElement("div");
+            meta.className = "pixel-device-meta";
+            const m0 = document.createElement("span");
+            m0.textContent = "LEDs " + Number(dev.led_count || 0);
+            const m1 = document.createElement("span");
+            m1.textContent = String(dev.driver || "driver");
+            meta.appendChild(m0);
+            meta.appendChild(m1);
+            btn.appendChild(meta);
+            btn.addEventListener("click", () => {
+              state.deviceId = Number(dev.id);
+              window.dispatchEvent(new CustomEvent("difsync-pc-select-device", { detail: { id: state.deviceId } }));
+              if (select) select.value = String(state.deviceId);
+              renderDevices();
+              loadLayout().catch((err) => setStatus(err.message || String(err), true));
+            });
+            gallery.appendChild(btn);
+          }
+        });
+
+        if (select) select.value = String(state.deviceId);
+      }
+
+      function renderSegments() {
+        const select = els.segment;
+        if (!select) return;
+        select.innerHTML = "";
+        const all = document.createElement("option");
+        all.value = "__all__";
+        all.textContent = "All LEDs";
+        select.appendChild(all);
+        const rows = state.layout && Array.isArray(state.layout.segments) ? state.layout.segments : [];
+        rows.forEach((seg, idx) => {
+          const opt = document.createElement("option");
+          opt.value = String(idx);
+          opt.textContent = (seg.label || ("Segment " + (idx + 1))) + " (" + Number(seg.count || 0) + ")";
+          select.appendChild(opt);
+        });
+      }
+
+      function renderGrid() {
+        const host = els.grid;
+        if (!host) return;
+        host.innerHTML = "";
+        if (!state.layout || !Array.isArray(state.pixels) || !state.pixels.length) {
+          host.innerHTML = "<div class='muted'>No LED layout loaded yet.</div>";
+          return;
+        }
+        state.pixels.forEach((rgb, idx) => {
+          const btn = document.createElement("button");
+          btn.className = "pixel-cell" + (idx === state.selected ? " sel" : "");
+          btn.style.background = rgbToHex(rgb);
+          btn.title = "#" + idx + " " + rgbToHex(rgb);
+          btn.addEventListener("pointerdown", (e) => {
+            e.preventDefault();
+            state.paintDown = true;
+            state.selected = idx;
+            paintLed(idx);
+          });
+          btn.addEventListener("pointerenter", () => {
+            if (state.paintDown) paintLed(idx);
+          });
+          btn.addEventListener("click", () => {
+            state.selected = idx;
+            renderGrid();
+          });
+          host.appendChild(btn);
+        });
+        const name = state.layout.name || "Device";
+        setMeta(name + " | LEDs: " + state.pixels.length + " | Selected: " + (state.selected >= 0 ? state.selected : "none"));
+        const view = String(els.viewMode && els.viewMode.value ? els.viewMode.value : "hybrid");
+        host.style.display = view === "rings" ? "none" : "grid";
+      }
+
+      async function loadDevices() {
+        if (cloudMode) {
+          setMeta("Pixel Lab requires local dashboard mode (not cloud panel path).");
+          setStatus("Disabled in cloud mode", true);
+          return;
+        }
+        const data = await api("/api/openrgb/devices");
+        const rows = Array.isArray(data.devices) ? data.devices : [];
+        state.devices = rows.filter((d) => d && d.per_led_supported !== false && Number(d.led_count || 0) > 0);
+        renderDevices();
+      }
+
+      async function loadLayout() {
+        if (!state.deviceId) return;
+        const data = await api("/api/openrgb/device-layout?device_id=" + encodeURIComponent(String(state.deviceId)));
+        state.layout = data.layout || null;
+        const rawPixels = state.layout && Array.isArray(state.layout.pixels) ? state.layout.pixels : [];
+        state.pixels = rawPixels.map((x) => [clampByte(x[0]), clampByte(x[1]), clampByte(x[2])]);
+        state.selected = -1;
+        renderDevices();
+        renderSegments();
+        renderGrid();
+        renderNzxtPanel();
+        setStatus("Layout loaded", false);
+      }
+
+      function parseBrightness() {
+        return Math.max(0, Math.min(100, Number(els.bright && els.bright.value ? els.bright.value : 100)));
+      }
+
+      async function pushPixels() {
+        if (!state.deviceId || !state.pixels.length) return;
+        await api("/api/openrgb/pixels", "POST", {
+          device_id: Number(state.deviceId),
+          pixels: state.pixels,
+          brightness: parseBrightness(),
+        });
+        setStatus("Pushed " + state.pixels.length + " LEDs", false);
+      }
+
+      function queuePush() {
+        if (!els.auto || !els.auto.checked) return;
+        if (state.pushTimer) window.clearTimeout(state.pushTimer);
+        state.pushTimer = window.setTimeout(() => {
+          state.pushTimer = null;
+          pushPixels().catch((err) => setStatus(err.message || String(err), true));
+        }, 95);
+      }
+
+      function paintLed(idx) {
+        if (idx < 0 || idx >= state.pixels.length) return;
+        state.pixels[idx] = hexToRgb(els.brush ? els.brush.value : "#FFFFFF");
+        queueRender();
+        queuePush();
+      }
+
+      function fillAll() {
+        const color = hexToRgb(els.brush ? els.brush.value : "#FFFFFF");
+        state.pixels = state.pixels.map(() => [color[0], color[1], color[2]]);
+        queueRender();
+        queuePush();
+      }
+
+      function fillSegment() {
+        if (!state.layout || !Array.isArray(state.layout.segments)) return fillAll();
+        const selected = els.segment ? els.segment.value : "__all__";
+        if (selected === "__all__") return fillAll();
+        const idx = Number(selected);
+        const seg = state.layout.segments[idx];
+        if (!seg) return;
+        const start = Math.max(0, Number(seg.start || 0));
+        const count = Math.max(0, Number(seg.count || 0));
+        const color = hexToRgb(els.brush ? els.brush.value : "#FFFFFF");
+        for (let i = start; i < Math.min(state.pixels.length, start + count); i += 1) {
+          state.pixels[i] = [color[0], color[1], color[2]];
+        }
+        queueRender();
+        queuePush();
+      }
+
+      function blackout() {
+        state.pixels = state.pixels.map(() => [0, 0, 0]);
+        queueRender();
+        queuePush();
+      }
+
+      function parsePalette() {
+        const raw = String(els.palette && els.palette.value ? els.palette.value : "");
+        const out = raw
+          .split(",")
+          .map((x) => x.trim())
+          .filter(Boolean)
+          .map((x) => hexToRgb(x));
+        return out.length ? out : [hexToRgb(els.brush ? els.brush.value : "#FFFFFF")];
+      }
+
+      async function startAnimation() {
+        if (!state.deviceId) throw new Error("Pick a device first");
+        const intervalMs = Math.max(20, Math.min(1000, Number(els.animInterval && els.animInterval.value ? els.animInterval.value : 65)));
+        const payload = {
+          device_id: Number(state.deviceId),
+          effect: String(els.animEffect && els.animEffect.value ? els.animEffect.value : "rainbow"),
+          interval_ms: intervalMs,
+          palette: parsePalette(),
+          brightness: parseBrightness(),
+          rgb: hexToRgb(els.brush ? els.brush.value : "#FFFFFF"),
+        };
+        const res = await api("/api/openrgb/animation/start", "POST", payload);
+        if (els.note) els.note.textContent = "Animation running: " + String(res.effect || payload.effect) + " @ " + intervalMs + "ms";
+        setStatus("Animation started", false);
+      }
+
+      async function stopAnimation() {
+        const payload = state.deviceId ? { device_id: Number(state.deviceId) } : {};
+        await api("/api/openrgb/animation/stop", "POST", payload);
+        if (els.note) els.note.textContent = "Animation idle.";
+        setStatus("Animation stopped", false);
+      }
+
+      async function refreshAnimStatus() {
+        const res = await api("/api/openrgb/animation/status");
+        const rows = Array.isArray(res.jobs) ? res.jobs : [];
+        const current = state.deviceId ? rows.find((x) => Number(x.device_id) === Number(state.deviceId)) : null;
+        if (els.note) {
+          if (current) {
+            els.note.textContent = "Animation running: " + String(current.effect || "unknown") + " @ " + Number(current.interval_ms || 0) + "ms";
+          } else {
+            els.note.textContent = rows.length ? "Other device animations active: " + rows.length : "Animation idle.";
+          }
+        }
+      }
+
+      function bind() {
+        document.addEventListener("pointerup", () => {
+          state.paintDown = false;
+        });
+        window.addEventListener("difsync-pixel-focus-device", (ev) => {
+          const id = Number(ev && ev.detail && ev.detail.id);
+          if (!Number.isFinite(id)) return;
+          if (state.devices.some((d) => Number(d.id) === id)) {
+            state.deviceId = id;
+            if (els.device) els.device.value = String(id);
+            renderDevices();
+            loadLayout().catch((err) => setStatus(err.message || String(err), true));
+          }
+        });
+        window.addEventListener("difsync-pc-devices-loaded", (ev) => {
+          const rows = ev && ev.detail && Array.isArray(ev.detail.devices) ? ev.detail.devices : null;
+          if (!rows) return;
+          const filtered = rows.filter((d) => d && d.per_led_supported !== false && Number(d.led || d.led_count || 0) > 0);
+          state.devices = filtered.map((d) => ({
+            id: Number(d.id),
+            name: String(d.name || "PC Device"),
+            driver: String(d.driver || ""),
+            led_count: Number(d.led_count || d.led || 0),
+          }));
+          if (!state.deviceId && state.devices.length) {
+            state.deviceId = Number(state.devices[0].id);
+          }
+          renderDevices();
+        });
+        if (els.device) {
+          els.device.addEventListener("change", () => {
+            state.deviceId = Number(els.device.value || 0) || null;
+            if (state.deviceId) {
+              window.dispatchEvent(new CustomEvent("difsync-pc-select-device", { detail: { id: state.deviceId } }));
+            }
+            loadLayout().catch((err) => setStatus(err.message || String(err), true));
+          });
+        }
+        if (els.bright) {
+          els.bright.addEventListener("input", () => {
+            if (els.brightVal) els.brightVal.textContent = String(parseBrightness()) + "%";
+            queuePush();
+          });
+        }
+        if (els.viewMode) {
+          els.viewMode.addEventListener("change", () => {
+            renderGrid();
+            renderNzxtPanel();
+          });
+        }
+        const mainPicker = byId("liveColorPicker");
+        if (mainPicker && els.brush) {
+          mainPicker.addEventListener("input", () => {
+            els.brush.value = mainPicker.value;
+          });
+        }
+        byId("pixelReloadDevicesBtn").addEventListener("click", () => loadDevices().then(loadLayout).catch((err) => setStatus(err.message || String(err), true)));
+        byId("pixelReloadLayoutBtn").addEventListener("click", () => loadLayout().catch((err) => setStatus(err.message || String(err), true)));
+        byId("pixelFillAllBtn").addEventListener("click", fillAll);
+        byId("pixelFillSegmentBtn").addEventListener("click", fillSegment);
+        byId("pixelPushNowBtn").addEventListener("click", () => pushPixels().catch((err) => setStatus(err.message || String(err), true)));
+        byId("pixelClearBtn").addEventListener("click", blackout);
+        byId("pixelAnimStartBtn").addEventListener("click", () => startAnimation().catch((err) => setStatus(err.message || String(err), true)));
+        byId("pixelAnimStopBtn").addEventListener("click", () => stopAnimation().catch((err) => setStatus(err.message || String(err), true)));
+        byId("pixelAnimStatusBtn").addEventListener("click", () => refreshAnimStatus().catch((err) => setStatus(err.message || String(err), true)));
+      }
+
+      async function init() {
+        if (els.brightVal) els.brightVal.textContent = String(parseBrightness()) + "%";
+        bind();
+        if (cloudMode) {
+          setMeta("Pixel Lab is disabled in cloud page mode. Open local dashboard at http://127.0.0.1:8080");
+          setStatus("Cloud mode not supported", true);
+          return;
+        }
+        try {
+          await loadDevices();
+          await loadLayout();
+          await refreshAnimStatus();
+        } catch (err) {
+          setStatus(err.message || String(err), true);
+        }
+      }
+
+      init();
+    })();
+  </script>
+</body>
+</html>
+
+

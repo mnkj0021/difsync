@@ -1,0 +1,22 @@
+{
+  "openrgb_host": "127.0.0.1",
+  "openrgb_port": 6742,
+  "anchor_device_match": "SteelSeries",
+  "poll_hz": 15,
+  "min_delta": 2,
+  "max_updates_per_sec_per_device": 1,
+  "devices": [
+    { "device": "YOUR_GOVEE_DEVICE_ID", "model": "H6008" }
+  ],
+  "mapping_mode": "single",
+  "zone_map": {
+    "left": { "match": "GPU" },
+    "right": { "match": "Motherboard" }
+  },
+  "brightness_lock": null,
+  "power_on_on_start": false,
+  "smoothing_alpha": 0.25,
+  "force_push_seconds": null,
+  "sdk_master": false,
+  "debug_verbose": false
+}

@@ -1,0 +1,1 @@
+@echo off`r`nsetlocal`r`ncd /d "%~dp0\..\.."`r`nif "%DIFSYNC_DEVICE_NAME%"=="" set "DIFSYNC_DEVICE_NAME=%COMPUTERNAME%"`r`nnode agents\device-agent\src\index.js`r`n

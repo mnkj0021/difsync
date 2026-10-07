@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>DifSync</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=Sora:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <div class="noise-layer"></div>
+  <div class="glow-layer"></div>
+
+  <main class="desktop-shell">
+    <header class="hero">
+      <div class="hero-left">
+        <div class="brand-badge">DS</div>
+        <div>
+          <h1>DifSync</h1>
+          <p>Low-latency local engine with cloud fallback and live sync telemetry.</p>
+        </div>
+      </div>
+      <div class="hero-right">
+        <span id="modeBadge" class="chip">Local Direct</span>
+        <button id="pingBtn" class="btn btn-soft">Ping Engine</button>
+      </div>
+    </header>
+
+    <section class="layout">
+      <article class="panel control-panel">
+        <div class="panel-head">
+          <h2>Live Color Engine</h2>
+          <p>Realtime output. Drag once, sync instantly.</p>
+        </div>
+
+        <div class="preview" id="previewCard">
+          <div class="preview-text">
+            <div class="tag">Output</div>
+            <div id="hexValue" class="hex">#FF4FA5</div>
+            <div id="rgbValue" class="meta">RGB 255, 79, 165</div>
+          </div>
+          <div id="swatch" class="swatch"></div>
+        </div>
+
+        <div class="field">
+          <label for="colorPicker">Color Picker</label>
+          <input id="colorPicker" type="color" value="#FF4FA5" />
+        </div>
+
+        <div class="field">
+          <label for="brightness">Brightness <strong id="brightnessValue">100%</strong></label>
+          <input id="brightness" type="range" min="0" max="100" value="100" />
+        </div>
+
+        <div class="field">
+          <label>Target Route</label>
+          <div class="target-segment" id="targetSegment">
+            <button class="target-btn is-active" type="button" data-target="scene">All</button>
+            <button class="target-btn" type="button" data-target="openrgb">PC</button>
+            <button class="target-btn" type="button" data-target="govee">IoT</button>
+          </div>
+          <select id="target" class="hidden-select" aria-hidden="true" tabindex="-1">
+            <option value="scene">All (PC + IoT)</option>
+            <option value="openrgb">PC Only</option>
+            <option value="govee">IoT Only</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <label>Quick Palette</label>
+          <div class="swatches" id="presetSwatches"></div>
+        </div>
+      </article>
+
+      <article class="panel settings-panel">
+        <div class="panel-head">
+          <h2>Control Link</h2>
+          <p>Keep local base URL for the fastest PC response.</p>
+        </div>
+
+        <div class="field">
+          <label for="baseUrl">Base URL</label>
+          <input id="baseUrl" type="text" placeholder="http://127.0.0.1:8080" />
+        </div>
+
+        <div class="field">
+          <label for="token">Auth Token / Panel Key</label>
+          <input id="token" type="text" placeholder="Optional" />
+        </div>
+
+        <div class="field two-col">
+          <div>
+            <label for="agentId">Agent ID</label>
+            <input id="agentId" type="text" placeholder="home-rgb-pc" />
+          </div>
+          <div>
+            <label for="minInterval">Min Interval (ms)</label>
+            <input id="minInterval" type="number" min="20" step="5" value="35" />
+          </div>
+        </div>
+
+        <div class="settings-actions">
+          <button id="saveSettingsBtn" class="btn btn-solid">Save</button>
+          <button id="testColorBtn" class="btn btn-soft">Pulse Test</button>
+        </div>
+
+        <div class="runtime">
+          <span>Desktop Runtime</span>
+          <strong id="runtimeText">-</strong>
+        </div>
+      </article>
+
+      <article class="panel feed-panel">
+        <div class="panel-head">
+          <h2>Realtime Feed</h2>
+          <p>Latest ACK / error events from your control transport.</p>
+        </div>
+        <div id="feed" class="feed"></div>
+      </article>
+    </section>
+  </main>
+
+  <script type="module" src="./renderer.js"></script>
+</body>
+</html>

@@ -1,0 +1,19 @@
+{
+  "name": "difsync-hub",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Always-on DifSync VPS hub for agents, queues, and remote control",
+  "main": "src/server.js",
+  "type": "commonjs",
+  "scripts": {
+    "dev": "node --watch src/server.js",
+    "start": "node src/server.js"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.10.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.5.0",
+    "express": "^4.21.2",
+    "ws": "^8.18.2"
+  }
+}

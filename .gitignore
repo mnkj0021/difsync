@@ -37,3 +37,6 @@ device-inventory*.json
 runtime-state*.json
 openrgb/
 OpenRGB/
+
+# generated local Windows launcher
+/DifSync.exe
