@@ -70,7 +70,8 @@ $csc = "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
 if (-not (Test-Path $csc)) { $csc = "$env:WINDIR\Microsoft.NET\Framework\v4.0.30319\csc.exe" }
 $launcherSource = Join-Path $SyncRoot "DifSyncLauncher.cs"
 if ((Test-Path $csc) -and (Test-Path $launcherSource)) {
-  & $csc /nologo /target:winexe /reference:System.Windows.Forms.dll /out:(Join-Path $SyncRoot "DifSync.exe") $launcherSource
+  $launcherExe = Join-Path $SyncRoot "DifSync.exe"
+  & $csc /nologo /target:winexe /reference:System.Windows.Forms.dll "/out:$launcherExe" $launcherSource
   if ($LASTEXITCODE -ne 0) { throw "Lighting Studio launcher compilation failed." }
 }
 
