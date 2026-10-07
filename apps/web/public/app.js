@@ -1,5 +1,5 @@
 const $ = (selector, root = document) => root.querySelector(selector);
-const $ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
+const $all = (selector, root = document) => Array.from(root.querySelectorAll(selector));
 
 function iconSvg(name, className = "ui-icon") {
   return `<svg class="${className}" aria-hidden="true"><use href="#i-${escapeAttr(name)}"></use></svg>`;
@@ -383,7 +383,7 @@ function renderConnectors() {
       </article>
     `;
   }).join("");
-  $$("[data-connect]", root).forEach((button) => {
+  $all("[data-connect]", root).forEach((button) => {
     button.addEventListener("click", () => openConnector(button.dataset.connect));
   });
 }
@@ -457,8 +457,8 @@ function setPage(page, updateUrl = true) {
     account: { title: "Settings", kicker: "Account", path: "/account" },
   };
   const current = meta[page] || meta.overview;
-  $$(".dash-nav").forEach((button) => button.classList.toggle("active", button.dataset.page === page));
-  $$(".dash-page").forEach((node) => node.classList.add("hidden"));
+  $all(".dash-nav").forEach((button) => button.classList.toggle("active", button.dataset.page === page));
+  $all(".dash-page").forEach((node) => node.classList.add("hidden"));
   $("#page-" + page)?.classList.remove("hidden");
   $("#page-title").textContent = current.title;
   $("#page-kicker").textContent = current.kicker;
@@ -508,8 +508,8 @@ document.addEventListener("DOMContentLoaded", () => {
     showAuth();
   });
 
-  $$(".dash-nav").forEach((button) => button.addEventListener("click", () => setPage(button.dataset.page)));
-  $$("[data-jump]").forEach((button) => button.addEventListener("click", () => setPage(button.dataset.jump)));
+  $all(".dash-nav").forEach((button) => button.addEventListener("click", () => setPage(button.dataset.page)));
+  $all("[data-jump]").forEach((button) => button.addEventListener("click", () => setPage(button.dataset.jump)));
 
   $("#refresh-button")?.addEventListener("click", async () => {
     try { await loadDashboard(); showToast("Dashboard refreshed"); }
@@ -523,9 +523,9 @@ document.addEventListener("DOMContentLoaded", () => {
   $("#pair-button")?.addEventListener("click", openPairDialog);
   $("#devices-add-button")?.addEventListener("click", openPairDialog);
 
-  $$(".pair-platform").forEach((button) => button.addEventListener("click", () => {
+  $all(".pair-platform").forEach((button) => button.addEventListener("click", () => {
     state.pairPlatform = button.dataset.platform || "windows";
-    $$(".pair-platform").forEach((item) => item.classList.toggle("active", item === button));
+    $all(".pair-platform").forEach((item) => item.classList.toggle("active", item === button));
     $("#pair-code-wrap").classList.add("hidden");
   }));
 
@@ -563,7 +563,7 @@ document.addEventListener("DOMContentLoaded", () => {
     setPage(pageByPath[location.pathname] || "overview", false);
   });
 
-  $$(".modal-close").forEach((button) => button.addEventListener("click", () => $("#" + button.dataset.close)?.close()));
+  $all(".modal-close").forEach((button) => button.addEventListener("click", () => $("#" + button.dataset.close)?.close()));
   $("#connector-form")?.addEventListener("submit", submitConnector);
 
   const brightness = $("#scene-brightness");
