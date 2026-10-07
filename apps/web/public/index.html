@@ -11,6 +11,29 @@
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
+  <svg class="icon-sprite" aria-hidden="true">
+  <symbol id="i-home" viewBox="0 0 24 24"><path d="M3 10.8 12 3l9 7.8v9.7a.5.5 0 0 1-.5.5H15v-6H9v6H3.5a.5.5 0 0 1-.5-.5z"/></symbol>
+  <symbol id="i-sparkles" viewBox="0 0 24 24"><path d="m12 3 1.7 4.3L18 9l-4.3 1.7L12 15l-1.7-4.3L6 9l4.3-1.7zM18.5 15l.9 2.1 2.1.9-2.1.9-.9 2.1-.9-2.1-2.1-.9 2.1-.9zM5 14l.8 1.8 1.8.8-1.8.8L5 19.2l-.8-1.8-1.8-.8 1.8-.8z"/></symbol>
+  <symbol id="i-plug" viewBox="0 0 24 24"><path d="M8 3v6M16 3v6M6 9h12v2a6 6 0 0 1-6 6v4M9 21h6"/></symbol>
+  <symbol id="i-monitor" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></symbol>
+  <symbol id="i-bot" viewBox="0 0 24 24"><rect x="4" y="7" width="16" height="12" rx="3"/><path d="M12 3v4M8 12h.01M16 12h.01M8 16h8"/></symbol>
+  <symbol id="i-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.8 1.8 0 0 0 .4 2l.1.1-2.8 2.8-.1-.1a1.8 1.8 0 0 0-2-.4 1.8 1.8 0 0 0-1.1 1.6V21h-4v-.1A1.8 1.8 0 0 0 8.8 19a1.8 1.8 0 0 0-2 .4l-.1.1-2.8-2.8.1-.1a1.8 1.8 0 0 0 .4-2A1.8 1.8 0 0 0 3 13.5H3v-4h.1A1.8 1.8 0 0 0 4.5 8a1.8 1.8 0 0 0-.4-2L4 5.9 6.8 3l.1.1a1.8 1.8 0 0 0 2 .4A1.8 1.8 0 0 0 10 2h4v.1a1.8 1.8 0 0 0 1.1 1.6 1.8 1.8 0 0 0 2-.4l.1-.1L20 6l-.1.1a1.8 1.8 0 0 0-.4 2 1.8 1.8 0 0 0 1.5 1.1h.1v4H21a1.8 1.8 0 0 0-1.6 1.8z"/></symbol>
+  <symbol id="i-log-out" viewBox="0 0 24 24"><path d="M10 5H5v14h5M14 8l4 4-4 4M18 12H9"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 6v5h-5M4 18v-5h5"/><path d="M18.2 9A7 7 0 0 0 6 6.8L4 9M5.8 15A7 7 0 0 0 18 17.2L20 15"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="11" height="11" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></symbol>
+  <symbol id="i-cpu" viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="2"/><path d="M9 1v3M15 1v3M9 20v3M15 20v3M20 9h3M20 14h3M1 9h3M1 14h3"/></symbol>
+  <symbol id="i-memory" viewBox="0 0 24 24"><rect x="3" y="7" width="18" height="10" rx="2"/><path d="M7 10v4M11 10v4M15 10v4M19 10v4M6 17v3M18 17v3"/></symbol>
+  <symbol id="i-drive" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="6" rx="2"/><rect x="3" y="13" width="18" height="6" rx="2"/><path d="M7 8h.01M7 16h.01"/></symbol>
+  <symbol id="i-network" viewBox="0 0 24 24"><circle cx="12" cy="5" r="2"/><circle cx="5" cy="19" r="2"/><circle cx="19" cy="19" r="2"/><path d="M12 7v5M5 17v-3h14v3"/></symbol>
+  <symbol id="i-terminal" viewBox="0 0 24 24"><path d="m4 6 5 6-5 6M11 18h9"/></symbol>
+  <symbol id="i-bulb" viewBox="0 0 24 24"><path d="M9 18h6M10 22h4M8.5 14.5A7 7 0 1 1 15.5 14.5c-.9.8-1.5 1.8-1.5 3.5h-4c0-1.7-.6-2.7-1.5-3.5z"/></symbol>
+  <symbol id="i-keyboard" viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M6 14h12"/></symbol>
+  <symbol id="i-mouse" viewBox="0 0 24 24"><rect x="7" y="2" width="10" height="20" rx="5"/><path d="M12 2v6"/></symbol>
+  <symbol id="i-gpu" viewBox="0 0 24 24"><rect x="3" y="6" width="16" height="10" rx="2"/><circle cx="9" cy="11" r="3"/><path d="M19 9h2M19 13h2M6 19h8"/></symbol>
+  <symbol id="i-board" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><rect x="8" y="8" width="8" height="8" rx="1"/><path d="M5 8h3M5 12h3M5 16h3M16 5v3M12 5v3M8 5v3"/></symbol>
+  <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></symbol>
+</svg>
   <div class="noise"></div>
 
   <div id="site-view">
@@ -205,21 +228,21 @@ browser → hub → local agent</code></pre>
         <nav class="dash-nav-tree">
           <div class="nav-group">
             <span class="nav-group-label">Workspace</span>
-            <button class="dash-nav active" data-page="overview"><span class="nav-icon">⌂</span><span>Overview</span></button>
+            <button class="dash-nav active" data-page="overview"><svg class="nav-icon"><use href="#i-home"/></svg><span>Overview</span></button>
           </div>
           <div class="nav-group">
             <span class="nav-group-label">Lighting sync</span>
-            <button class="dash-nav" data-page="sync"><span class="nav-icon">◇</span><span>Sync studio</span></button>
-            <button class="dash-nav" data-page="connectors"><span class="nav-icon">◎</span><span>Integrations</span></button>
+            <button class="dash-nav" data-page="sync"><svg class="nav-icon"><use href="#i-sparkles"/></svg><span>Sync studio</span></button>
+            <button class="dash-nav" data-page="connectors"><svg class="nav-icon"><use href="#i-plug"/></svg><span>Integrations</span></button>
           </div>
           <div class="nav-group">
             <span class="nav-group-label">Remote access</span>
-            <button class="dash-nav" data-page="devices"><span class="nav-icon">▣</span><span>Systems</span></button>
-            <button class="dash-nav" data-page="mcp"><span class="nav-icon">↗</span><span>ChatGPT access</span></button>
+            <button class="dash-nav" data-page="devices"><svg class="nav-icon"><use href="#i-monitor"/></svg><span>Systems</span></button>
+            <button class="dash-nav" data-page="mcp"><svg class="nav-icon"><use href="#i-bot"/></svg><span>ChatGPT access</span></button>
           </div>
           <div class="nav-group nav-group-bottom">
             <span class="nav-group-label">Account</span>
-            <button class="dash-nav" data-page="account"><span class="nav-icon">○</span><span>Settings</span></button>
+            <button class="dash-nav" data-page="account"><svg class="nav-icon"><use href="#i-settings"/></svg><span>Settings</span></button>
           </div>
         </nav>
         <div class="dash-user"><span id="user-avatar">D</span><div><b id="user-name">User</b><small id="user-email"></small></div></div>
@@ -229,8 +252,8 @@ browser → hub → local agent</code></pre>
         <header class="dash-header">
           <div><span class="eyebrow" id="page-kicker">Workspace</span><h1 id="page-title">Overview</h1></div>
           <div class="dash-actions">
-            <button id="pair-button" class="button button-quiet">Add system</button>
-            <button id="logout-button" class="icon-button" aria-label="Log out">↗</button>
+            <button id="pair-button" class="button button-quiet button-with-icon"><svg class="button-icon"><use href="#i-plus"/></svg><span>Add system</span></button>
+            <button id="logout-button" class="icon-button" aria-label="Log out" title="Log out"><svg class="button-icon"><use href="#i-log-out"/></svg></button>
           </div>
         </header>
 
@@ -238,13 +261,13 @@ browser → hub → local agent</code></pre>
           <section id="page-overview" class="dash-page">
             <div class="product-pillars">
               <button class="pillar-card" data-jump="sync">
-                <div class="pillar-top"><span class="pillar-icon sync-icon">◇</span><span class="status-pill ready">Lighting</span></div>
+                <div class="pillar-top"><span class="pillar-icon sync-icon"><svg><use href="#i-sparkles"/></svg></span><span class="status-pill ready">Lighting</span></div>
                 <h2>Lighting Sync</h2>
                 <p>Coordinate PC RGB, room lights and smart-home connectors on one shared scene timeline.</p>
                 <span class="pillar-link">Open Sync Studio <b>→</b></span>
               </button>
               <button class="pillar-card" data-jump="devices">
-                <div class="pillar-top"><span class="pillar-icon remote-icon">▣</span><span class="status-pill ready">Remote</span></div>
+                <div class="pillar-top"><span class="pillar-icon remote-icon"><svg><use href="#i-monitor"/></svg></span><span class="status-pill ready">Remote</span></div>
                 <h2>Remote Access</h2>
                 <p>Pair computers securely, inspect files and processes, and expose approved controls to ChatGPT through MCP.</p>
                 <span class="pillar-link">Manage systems <b>→</b></span>
@@ -256,7 +279,7 @@ browser → hub → local agent</code></pre>
               <article><span>Access model</span><b>Scoped</b><small>OAuth + per-user ownership</small></article>
             </div>
             <section class="panel">
-              <div class="panel-head"><div><span class="eyebrow">Remote systems</span><h2>Connected computers</h2></div><button class="text-link button-link" id="refresh-button">Refresh</button></div>
+              <div class="panel-head"><div><span class="eyebrow">Remote systems</span><h2>Connected computers</h2></div><button class="text-link button-link button-with-icon" id="refresh-button"><svg class="button-icon"><use href="#i-refresh"/></svg><span>Refresh</span></button></div>
               <div id="agent-list" class="agent-list empty-state">No systems paired yet.</div>
             </section>
           </section>
@@ -296,7 +319,7 @@ browser → hub → local agent</code></pre>
               <div><span class="eyebrow">Remote access</span><h2>Paired systems</h2></div>
               <div class="devices-intro-actions">
                 <p>These are computers and servers you can manage remotely. Lighting components discovered inside them are shown separately in Sync Studio.</p>
-                <button id="devices-add-button" class="button button-primary">Add device</button>
+                <button id="devices-add-button" class="button button-primary button-with-icon"><svg class="button-icon"><use href="#i-plus"/></svg><span>Add device</span></button>
               </div>
             </div>
             <div id="device-page-list" class="device-page-list"></div>
@@ -308,7 +331,7 @@ browser → hub → local agent</code></pre>
               <p class="panel-copy">Already paired? Run this command on Windows to install or repair the local DifSync dashboard. Opening the app makes the PC reachable. Closing it takes the PC offline.</p>
               <div class="command-box">
                 <code id="windows-app-command">powershell -NoProfile -ExecutionPolicy Bypass -Command "iwr 'https://difsync.com/install/windows.ps1' -UseBasicParsing -OutFile '$env:TEMP\difsync-install.ps1'; &amp; '$env:TEMP\difsync-install.ps1'"</code>
-                <button id="copy-windows-app-command" class="copy-mini" type="button">Copy</button>
+                <button id="copy-windows-app-command" class="copy-mini button-with-icon" type="button"><svg class="button-icon"><use href="#i-copy"/></svg><span>Copy</span></button>
               </div>
             </section>
           </section>
