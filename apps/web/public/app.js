@@ -182,6 +182,11 @@ function renderDevices() {
           <div><dt>Remote access</dt><dd>${agent.online ? "Available" : "Unavailable"}</dd></div>
           <div><dt>Lighting</dt><dd>${escapeHtml(syncStatus)}</dd></div>
         </dl>
+        <div class="system-capabilities">
+          <span class="${agent.online ? "active" : ""}">${iconSvg("monitor", "capability-icon")}<b>Remote</b></span>
+          <span class="${sync.online ? "active" : ""}">${iconSvg("sparkles", "capability-icon")}<b>Lighting</b><small>${inventoryCount(agent)}</small></span>
+          <span class="${(agent.inventory?.capabilities || []).includes("system.metrics") ? "active" : ""}">${iconSvg("cpu", "capability-icon")}<b>System</b></span>
+        </div>
         <div class="system-actions">
           <button class="button button-soft system-inspect-button button-with-icon" data-inspect-device="${escapeAttr(agent.id)}" ${agent.online ? "" : "disabled"}>${iconSvg("chevron", "button-icon")}<span>Open system details</span></button>
         </div>
