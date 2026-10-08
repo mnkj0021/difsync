@@ -91,17 +91,27 @@ function showDashboard() {
 }
 
 async function initApp() {
+  // Rendering problems are not authentication failures.
   try {
     const data = await api("/api/auth/me");
     state.user = data.user;
-    showDashboard();
-    await loadDashboard();
-    const pageByPath = {"/sync":"sync","/integrations":"connectors","/devices":"devices","/mcp-access":"mcp","/account":"account"};
-    setPage(pageByPath[location.pathname] || "overview", false);
   } catch (error) {
-    if (error.status !== 401) showToast(error.message, true);
     showAuth();
+    if (error.status !== 401) showToast("Session check failed: " + error.message, true);
+    return;
   }
+  showDashboard();
+  try {
+    await loadDashboard();
+  } catch (error) {
+    if (error.status === 401) {
+      showAuth();
+      return;
+    }
+    showToast("Dashboard could not load: " + error.message, true);
+  }
+  const pageByPath = {"/sync":"sync","/integrations":"connectors","/devices":"devices","/mcp-access":"mcp","/account":"account"};
+  setPage(pageByPath[location.pathname] || "overview", false);
 }
 
 async function loadDashboard() {
@@ -195,7 +205,7 @@ function renderDevices() {
     `;
   }).join("");
 
-  $("[data-inspect-device]", root).forEach((button) => {
+  $all("[data-inspect-device]", root).forEach((button) => {
     button.addEventListener("click", () => loadDeviceDetails(button.dataset.inspectDevice, button));
   });
 }
@@ -295,7 +305,7 @@ async function loadDeviceDetails(agentId, button) {
 
     panel.dataset.loaded = "true";
     button.innerHTML = iconSvg("chevron", "button-icon chevron-open") + "<span>Hide system details</span>";
-    $("[data-kill-process]", panel).forEach((killButton) => {
+    $all("[data-kill-process]", panel).forEach((killButton) => {
       killButton.addEventListener("click", async () => {
         const pid = Number(killButton.dataset.killProcess);
         if (!pid || !window.confirm("Terminate process PID " + pid + " on this device?")) return;
@@ -493,7 +503,15 @@ document.addEventListener("DOMContentLoaded", () => {
       const data = await api("/api/auth/" + state.authMode, { method: "POST", body: JSON.stringify(payload) });
       state.user = data.user;
       showDashboard();
-      await loadDashboard();
+      try {
+        await loadDashboard();
+      } catch (error) {
+        if (error.status === 401) {
+          showAuth();
+        } else {
+          showToast("Dashboard could not load: " + error.message, true);
+        }
+      }
     } catch (error) {
       errorBox.textContent = error.message;
       errorBox.classList.remove("hidden");
