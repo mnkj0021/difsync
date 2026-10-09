@@ -572,20 +572,6 @@ export default function App() {
     } finally { setBusy(""); }
   }
 
-  async function setAiModel(model: string) {
-    try {
-      const result = await localApi("/api/system/state", {
-        method: "POST",
-        body: JSON.stringify({ ai_model: model }),
-      });
-      setRuntime(result.state);
-      setAiStatus((s) => ({ ...s, selected: model }));
-      notify("AI model saved");
-    } catch (error) {
-      notify(apiError(error));
-    }
-  }
-
   async function ensureRuntime() {
     const bridge = window.difsyncDesktop;
     try {
@@ -972,6 +958,10 @@ declare global {
       ensureRuntime?: () => Promise<any>;
       quit?: () => Promise<void>;
       setLaunchAtStartup?: (enabled: boolean) => Promise<any>;
+      localUrl?: string;
+      getLaunchAtStartup?: () => Promise<any>;
+      releaseNzxtRgb?: () => Promise<{ok: boolean;error?: string;cam_service?: string;gui_remaining?: number}>;
+      enableCpuPower?: () => Promise<any>;
     };
   }
 }
