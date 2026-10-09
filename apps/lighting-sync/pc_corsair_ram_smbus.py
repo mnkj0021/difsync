@@ -77,6 +77,7 @@ def _run_powershell_json(script: str, timeout_s: float = 8.0) -> list[dict[str, 
             text=True,
             timeout=timeout_s,
             check=False,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
     except Exception:
         return []
@@ -112,6 +113,7 @@ def _winring_service_binary_hint() -> str:
             text=True,
             timeout=3.0,
             check=False,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
     except Exception:
         return ""

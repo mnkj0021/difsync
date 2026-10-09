@@ -42,9 +42,13 @@ type AiScene = {
   model?: string;
   reason?: string;
   ai_error?: string;
+  zone_colors?: Record<string, number[]>;
+  device_colors?: Record<string, number[]>;
 };
 
-const LOCAL_URL = "http://127.0.0.1:8080";
+const LOCAL_URL = typeof window !== "undefined" && (window as any).difsyncDesktop?.localUrl
+  ? String((window as any).difsyncDesktop.localUrl).replace(/\/+$/, "")
+  : "http://127.0.0.1:8080";
 const CLOUD_URL = String(import.meta.env.VITE_DIFSYNC_SYNC_CLOUD_URL || "https://difsync.com").replace(/\/+$/, "");
 const THEME_KEY = "difsync-theme-v2";
 
@@ -62,9 +66,7 @@ function desktopAvailable() {
 }
 
 function initialTheme(): "dark" | "light" {
-  const saved = localStorage.getItem(THEME_KEY);
-  if (saved === "light" || saved === "dark") return saved;
-  return window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+  return "dark";
 }
 
 function clamp(n: number, lo = 0, hi = 255) {
@@ -138,7 +140,7 @@ function BrandMark() {
 export default function App() {
   const isDesktop = desktopAvailable();
   const [section, setSection] = useState<Section>("overview");
-  const [theme, setTheme] = useState<"dark" | "light">(initialTheme);
+  const [theme] = useState<"dark" | "light">(initialTheme);
   const [health, setHealth] = useState<Record<string, any> | null>(null);
   const [pcDevices, setPcDevices] = useState<PcDevice[]>([]);
   const [goveeDevices, setGoveeDevices] = useState<GoveeDevice[]>([]);
@@ -273,11 +275,20 @@ export default function App() {
 
   useEffect(() => {
     refreshAll(true);
-    const timer = window.setInterval(() => refreshAll(true), 7000);
-    const renderTimer = window.setInterval(() => setRendererTick((x) => x + 1), 100);
+    const timer = window.setInterval(() => refreshAll(true), 20000);
+    const renderTimer = window.setInterval(() => setRendererTick((x) => x + 1), 400);
+    const onKeyDown = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        setSection("devices");
+        document.querySelector<HTMLInputElement>(".command-search input")?.focus();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
     return () => {
       window.clearInterval(timer);
       window.clearInterval(renderTimer);
+      window.removeEventListener("keydown", onKeyDown);
     };
   }, []);
 
@@ -307,20 +318,115 @@ export default function App() {
   const selectedPcRows = pcDevices.filter((d) => selectedPc.includes(Number(d.id)));
   const animatePcRows = selectedPcRows.filter((d) => d.per_led_supported !== false);
 
+  function selectedDeviceKeys() {
+    return [...selectedPc.map((id) => "pc:" + id), ...selectedGovee.map((id) => "govee:" + id)];
+  }
+
+  function sequenceEffectFor(name: string) {
+    const map: Record<string, string> = {
+      gradient: "layout_flow", wave: "layout_flow", aurora: "layout_flow", rainbow: "layout_flow",
+      comet: "layout_comet", pulse: "layout_ripple", chase: "layout_chase", scanner: "layout_chase",
+    };
+    return map[name] || "layout_flow";
+  }
+
+  function simpleZoneColors(base: RGB, palette: RGB[]) {
+    const p = palette.length ? palette : [base, base, base];
+    const at = (i: number) => p[i % p.length] || base;
+    return {
+      front: at(0), bottom: at(0), gpu: at(2), motherboard: at(1),
+      top: at(1), rear: at(1), keyboard: at(1), mouse: at(2), external: at(0),
+    };
+  }
+
+  async function releaseNzxtIfNeeded() {
+    if (!isDesktop || !selectedPcRows.some((d) => d.driver === "nzxt_hue2")) return;
+    try {
+      const conflict = await localApi("/api/rig/conflicts", undefined, 5000);
+      if (!conflict.cam_desktop_running) return;
+      const bridge = window.difsyncDesktop;
+      if (!bridge?.releaseNzxtRgb) throw new Error("NZXT CAM owns RGB and cannot be released from this shell.");
+      const result = await bridge.releaseNzxtRgb();
+      if (!result?.ok) throw new Error(result?.error || "NZXT CAM still owns RGB.");
+      pushEvent("NZXT CAM desktop released RGB; CAMService remains " + String(result.cam_service || "running"));
+    } catch (error) {
+      throw new Error("RGB ownership: " + apiError(error));
+    }
+  }
+
+  async function applyRigScene(scene: AiScene) {
+    const zoneColors = scene.zone_colors || simpleZoneColors(rgbArray(scene.rgb), (scene.palette || []).map(rgbArray));
+    const deviceColors = scene.device_colors || {};
+    await releaseNzxtIfNeeded();
+    const result = await localApi("/api/rig/apply", {
+      method: "POST",
+      body: JSON.stringify({
+        rgb: rgbArray(scene.rgb),
+        brightness: scene.brightness,
+        zone_colors: zoneColors,
+        device_colors: deviceColors,
+        openrgb_device_ids: selectedPc,
+        govee_device_ids: selectedGovee,
+      }),
+    }, 45000);
+    const failed = Number(result.failed || 0);
+    pushEvent("Scene " + scene.name + ": " + Number(result.accepted || 0) + " accepted" + (failed ? ", " + failed + " failed" : ""));
+    if (failed) {
+      const names = (result.results || []).filter((x: any) => !x.ok).map((x: any) => x.name).slice(0, 3);
+      notify("Applied with failures: " + names.join(", "));
+    } else {
+      notify("Scene applied to " + Number(result.accepted || 0) + " devices");
+    }
+    if (scene.effect && scene.effect !== "static") {
+      const started = await localApi("/api/rig/sequence/start", {
+        method: "POST",
+        body: JSON.stringify({
+          route: runtime.layout_direction === "reverse" ? "reverse" : "airflow",
+          effect: sequenceEffectFor(scene.effect),
+          cycle_seconds: Math.max(2.5, Math.min(18, Number(scene.speed_ms || 120) / 24)),
+          interval_ms: Math.max(55, Math.min(160, Number(scene.speed_ms || 80))),
+          brightness: scene.brightness,
+          device_keys: selectedDeviceKeys(),
+          zone_colors: zoneColors,
+          device_colors: deviceColors,
+        }),
+      }, 40000);
+      pushEvent("Layout animation: " + (started.route || "airflow") + " · " + (started.devices?.length || 0) + " native controllers");
+    }
+    return result;
+  }
+
   async function applyColor(nextColor = color, nextBrightness = brightness) {
     const rgb = hexToRgb(nextColor);
     setBusy("apply");
-    client.setConfig({ target: "scene" });
-    client.queue({
-      target: "scene",
-      rgb,
-      brightness: nextBrightness,
-      openrgb_device_ids: selectedPc,
-      govee_device_ids: selectedGovee,
-    });
-    pushEvent("Scene " + nextColor + " at " + nextBrightness + "%");
-    notify("Scene sent");
-    window.setTimeout(() => setBusy(""), 240);
+    try {
+      if (!isDesktop) {
+        client.setConfig({ target: "scene" });
+        client.queue({ target: "scene", rgb, brightness: nextBrightness,
+          openrgb_device_ids: selectedPc, govee_device_ids: selectedGovee });
+        pushEvent("Remote scene queued " + nextColor + " at " + nextBrightness + "%");
+        notify("Scene queued");
+        return;
+      }
+      await releaseNzxtIfNeeded();
+      const result = await localApi("/api/rig/apply", {
+        method: "POST",
+        body: JSON.stringify({
+          rgb, brightness: nextBrightness, zone_colors: {}, device_colors: {},
+          openrgb_device_ids: selectedPc, govee_device_ids: selectedGovee,
+        }),
+      }, 45000);
+      const failed = Number(result.failed || 0);
+      pushEvent("Native apply " + nextColor + " · " + Number(result.accepted || 0) + " accepted · " + failed + " failed");
+      if (failed) {
+        const bad = (result.results || []).filter((x: any) => !x.ok).map((x: any) => x.name).slice(0, 3);
+        notify("Some devices failed: " + bad.join(", "));
+      } else notify("Applied to " + Number(result.accepted || 0) + " devices");
+    } catch (error) {
+      notify(apiError(error)); pushEvent("Apply error: " + apiError(error));
+    } finally {
+      setBusy("");
+    }
   }
 
   async function toggleCloud() {
@@ -376,97 +482,54 @@ export default function App() {
   }
 
   async function startEffect(effectOverride = effect, colorOverride = color, brightnessOverride = brightness) {
-    if (!isDesktop) {
-      notify("Live per-LED rendering runs on the DifSync PC");
-      return;
-    }
-    if (!animatePcRows.length) {
-      notify("No selected device supports per-LED animation");
-      return;
-    }
-
+    if (!isDesktop) { notify("Layout animation runs on the DifSync PC"); return; }
+    const resolvedEffect = effectOverride || effect;
+    const resolvedColor = colorOverride || color;
+    const resolvedBrightness = Number.isFinite(Number(brightnessOverride)) ? Number(brightnessOverride) : brightness;
+    if (resolvedEffect === "static") { await applyColor(resolvedColor, resolvedBrightness); return; }
+    if (!animatePcRows.length) { notify("No selected device supports animation"); return; }
     setBusy("effect");
     try {
-      const resolvedEffect = effectOverride || effect;
-      const resolvedColor = colorOverride || color;
-      const resolvedBrightness = Number.isFinite(Number(brightnessOverride)) ? Number(brightnessOverride) : brightness;
+      await releaseNzxtIfNeeded();
       const palette = effectPalette.map(hexToRgb);
-      const physicalOrder = layoutKeys
-        .filter((key) => key.startsWith("pc:"))
-        .map((key) => Number(key.slice(3)));
-      if (runtime.layout_direction === "reverse") physicalOrder.reverse();
-
-      const orderedAnimated = [...animatePcRows].sort((a, b) => {
-        const ai = physicalOrder.indexOf(Number(a.id));
-        const bi = physicalOrder.indexOf(Number(b.id));
-        return (ai < 0 ? 9999 : ai) - (bi < 0 ? 9999 : bi);
-      });
-
-      // Static-only hardware (currently the MSI GPU bridge) receives the scene
-      // anchor once. We do not launch a native GPU process every animation frame.
-      const staticIds = selectedPcRows
-        .filter((d) => d.per_led_supported === false)
-        .map((d) => Number(d.id));
-      if (staticIds.length) {
-        await localApi("/api/openrgb/color", {
-          method: "POST",
-          body: JSON.stringify({
-            rgb: hexToRgb(resolvedColor),
-            brightness: resolvedBrightness,
-            device_ids: staticIds,
-          }),
-        }, 20000);
-      }
-
-      if (selectedGovee.length) {
-        void localApi("/api/govee/color", {
-          method: "POST",
-          body: JSON.stringify({
-            rgb: hexToRgb(resolvedColor),
-            brightness: resolvedBrightness,
-            device_ids: selectedGovee,
-          }),
-        }, 12000)
-          .then(() => pushEvent("Room lights anchored to " + resolvedColor))
-          .catch((error) => pushEvent("Room anchor skipped: " + apiError(error)));
-      }
-
-      const result = await localApi("/api/openrgb/animation/group/start", {
+      const zoneColors = simpleZoneColors(hexToRgb(resolvedColor), palette);
+      // Establish the static anchors first. The sequence endpoint then animates
+      // only hardware capable of native frames and leaves GPU/Govee paced safely.
+      const applied = await localApi("/api/rig/apply", {
         method: "POST",
         body: JSON.stringify({
-          device_ids: orderedAnimated.map((d) => Number(d.id)),
-          effect: resolvedEffect,
-          interval_ms: effectSpeed,
-          speed: motionSpeed,
+          rgb: hexToRgb(resolvedColor), brightness: resolvedBrightness,
+          zone_colors: zoneColors, device_colors: {},
+          openrgb_device_ids: selectedPc, govee_device_ids: selectedGovee,
+        }),
+      }, 45000);
+      const started = await localApi("/api/rig/sequence/start", {
+        method: "POST",
+        body: JSON.stringify({
+          route: runtime.layout_direction === "reverse" ? "reverse" : "airflow",
+          effect: sequenceEffectFor(resolvedEffect),
+          cycle_seconds: Math.max(2.5, Math.min(18, 4.5 / Math.max(.18, motionSpeed))),
+          interval_ms: Math.max(55, Math.min(160, effectSpeed)),
+          brightness: resolvedBrightness,
           spread: effectSpread,
           direction: effectDirection,
-          palette,
-          rgb: hexToRgb(resolvedColor),
-          brightness: resolvedBrightness,
+          device_keys: selectedDeviceKeys(),
+          zone_colors: zoneColors, device_colors: {},
         }),
-      }, 15000);
-
-      const lanes = Array.isArray(result.devices) ? result.devices : [];
-      const fast = lanes.filter((x: any) => Number(x.cadence_ms || 999) <= 70).length;
-      const slow = lanes.length - fast;
-      pushEvent("Phase-locked " + effect + " · " + lanes.length + " devices · " + fast + " fast / " + slow + " paced");
-      notify("Phase-locked effect started");
+      }, 40000);
+      pushEvent("Native layout " + resolvedEffect + " · " + (started.devices?.length || 0) + " animated · " + (started.anchors?.length || 0) + " anchors");
+      notify("Layout animation running");
+      if (Number(applied.failed || 0)) pushEvent(String(applied.failed) + " static anchor(s) reported a failure");
     } catch (error) {
-      notify(apiError(error));
-      pushEvent("Effect error: " + apiError(error));
-    } finally {
-      setBusy("");
-    }
+      notify(apiError(error)); pushEvent("Animation error: " + apiError(error));
+    } finally { setBusy(""); }
   }
 
   async function stopEffects() {
     try {
-      await localApi("/api/openrgb/animation/stop", { method: "POST", body: "{}" });
-      notify("Animations stopped");
-      pushEvent("Animations stopped");
-    } catch (error) {
-      notify(apiError(error));
-    }
+      await localApi("/api/rig/sequence/stop", { method: "POST", body: "{}" }, 15000);
+      notify("Animations stopped"); pushEvent("Layout animation stopped");
+    } catch (error) { notify(apiError(error)); }
   }
 
   async function generateAi() {
@@ -476,10 +539,10 @@ export default function App() {
     }
     setAiBusy(true);
     try {
-      const result = await localApi("/api/ai/scene", {
+      const result = await localApi("/api/rig/suggest", {
         method: "POST",
         body: JSON.stringify({ prompt: aiPrompt }),
-      }, 15000);
+      }, 65000);
       const scene = result.scene as AiScene;
       setAiScene(scene);
       setColor(rgbToHex(rgbArray(scene.rgb)));
@@ -498,11 +561,15 @@ export default function App() {
 
   async function applyAiScene() {
     if (!aiScene) return;
-    const hex = rgbToHex(rgbArray(aiScene.rgb));
-    setColor(hex);
-    setBrightness(aiScene.brightness);
-    await applyColor(hex, aiScene.brightness);
-    if (aiScene.effect !== "static") window.setTimeout(() => void startEffect(aiScene.effect, hex, aiScene.brightness), 250);
+    setBusy("apply");
+    try {
+      setColor(rgbToHex(rgbArray(aiScene.rgb)));
+      setBrightness(aiScene.brightness);
+      setEffect(aiScene.effect);
+      await applyRigScene(aiScene);
+    } catch (error) {
+      notify(apiError(error)); pushEvent("AI scene error: " + apiError(error));
+    } finally { setBusy(""); }
   }
 
   async function setAiModel(model: string) {
@@ -650,9 +717,9 @@ export default function App() {
           <div className="topbar-actions">
             <div className={connectionHealthy ? "system-health healthy" : "system-health"}>
               <span>{connectionHealthy ? "✓" : "•"}</span>
-              <div><b>{connectionHealthy ? "All Systems Synced" : "Local Control"}</b><small>{activeCount} devices selected</small></div>
+              <div><b>{connectionHealthy ? "Local API Online" : "Local Control"}</b><small>{activeCount} devices selected</small></div>
             </div>
-            <button className="theme-btn icon-action" onClick={() => setTheme(theme === "dark" ? "light" : "dark")}>{svgIcon(theme === "dark" ? "sun" : "moon", "inline-icon")}</button>
+            <span className="theme-btn icon-action fixed-dark" title="DifSync uses the native dark interface">{svgIcon("moon", "inline-icon")}</span>
           </div>
         </header>
 
@@ -884,9 +951,9 @@ export default function App() {
             <div className="settings-page premium-page">
               <section className="page-heading"><div><span className="section-kicker">Application</span><h1>Settings</h1><p>Control remote access, appearance, AI and the local runtime.</p></div></section>
               <section className="setting-card"><div><span className="section-kicker">Remote access</span><h3>difsync.com control</h3><p>Local lighting keeps working even when remote control is disabled.</p></div><button className={cloudEnabled?"big-switch on":"big-switch"} onClick={toggleCloud}><span/><b>{cloudEnabled?"Enabled":"Disabled"}</b></button></section>
-              <section className="setting-card"><div><span className="section-kicker">Appearance</span><h3>Theme</h3><p>Use the same premium control surface in dark or light mode.</p></div><div className="segmented compact"><button className={theme==="dark"?"active":""} onClick={()=>setTheme("dark")}>Dark</button><button className={theme==="light"?"active":""} onClick={()=>setTheme("light")}>Light</button></div></section>
-              <section className="setting-card"><div><span className="section-kicker">AI engine</span><h3>Ollama model</h3><p>Select the local model used for scene generation.</p></div><select value={runtime.ai_model||""} onChange={(e)=>setAiModel(e.target.value)}><option value="">Auto</option>{aiStatus.models.map((model)=><option value={model} key={model}>{model}</option>)}</select></section>
-              <section className="setting-card"><div><span className="section-kicker">Runtime</span><h3>Local service</h3><p>{localOnline?"Local hardware API is healthy.":"The local engine is not responding."}</p></div><button className="hero-secondary" onClick={ensureRuntime}>{svgIcon("refresh","inline-icon")}<span>Restart service</span></button></section>
+              <section className="setting-card"><div><span className="section-kicker">Appearance</span><h3>Native dark</h3><p>DifSync uses one near-black desktop interface for consistent native controls.</p></div><span className="health-pill healthy">Dark locked</span></section>
+              <section className="setting-card"><div><span className="section-kicker">AI engine</span><h3>TinyLlama 1.1B</h3><p>Rig Studio uses TinyLlama for intent and the deterministic hardware compositor for device routing.</p></div><span className={aiStatus.online?"health-pill healthy":"health-pill"}>{aiStatus.online?"Local AI ready":"Fallback ready"}</span></section>
+              <section className="setting-card"><div><span className="section-kicker">Runtime</span><h3>Local service</h3><p>{localOnline?"Local hardware API is healthy.":"The local engine is not responding."}</p></div><button className="hero-secondary" onClick={ensureRuntime}>{svgIcon("refresh","inline-icon")}<span>Check engine</span></button></section>
             </div>
           )}
         </main>

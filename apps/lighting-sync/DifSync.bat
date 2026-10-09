@@ -27,37 +27,24 @@ echo.
 goto :help
 
 :start
-call :require_admin start
-if errorlevel 2 exit /b 0
-if errorlevel 1 exit /b 1
-call :ensure_venv
-if errorlevel 1 exit /b 1
-call :warn_if_not_admin
-call :kill_rgb_conflicts
-echo [INFO] Resetting existing DifSync runtime...
-call "%~f0" stop >nul 2>&1
-timeout /t 1 >nul
-echo [INFO] Starting DifSync Dashboard + Agent...
-start "DifSync Dashboard" cmd /c ""%~f0" dashboard"
-timeout /t 1 >nul
-start "DifSync Agent" cmd /c ""%~f0" agent"
-echo [OK] Startup commands issued.
+rem Legacy compatibility entry point. The desktop app owns the lighting
+rem service, starts it without a terminal, and closes to the tray.
+rem Never reset RGB ownership, kill the remote agent or start CMD watchdogs.
+if not exist "%~dp0DifSync.exe" (
+  echo [ERROR] DifSync.exe is missing.
+  exit /b 1
+)
+start "" "%~dp0DifSync.exe"
 exit /b 0
-
 :stop
-echo [INFO] Stopping DifSync processes...
-powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-  "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match 'dashboard_server.py|remote_agent.py|DifSync\.bat.*(dashboard|agent)' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }"
-powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-  "Get-Process -Name OpenRGB -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }"
-echo [OK] DifSync stopped.
+echo [INFO] DifSync is managed by the desktop app.
+echo [INFO] Use the DifSync tray icon to Quit the app.
+echo [INFO] The local lighting engine and paired remote agent are not terminated.
 exit /b 0
 
 :restart
-call "%~f0" stop --elevated
-timeout /t 1 >nul
-call "%~f0" start --elevated
-exit /b %errorlevel%
+rem Second launch activates the existing single-instance DifSync UI.
+goto :start
 
 :status
 echo ================================
@@ -80,23 +67,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
 exit /b 0
 
 :dashboard
-call :require_admin dashboard
-if errorlevel 2 exit /b 0
-if errorlevel 1 exit /b 1
-call :ensure_venv
-if errorlevel 1 exit /b 1
-call :warn_if_not_admin
-echo [INFO] Stopping existing dashboard_server.py processes...
-powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-  "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match 'dashboard_server.py' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }"
-echo [INFO] DifSyncDashboard watchdog started.
-:dashboard_loop
-echo [INFO] Launching dashboard_server.py at %date% %time%
-".\.venv\Scripts\python.exe" -u "dashboard_server.py"
-set "EXIT_CODE=%ERRORLEVEL%"
-echo [WARN] dashboard_server.py exited with code %EXIT_CODE% at %date% %time%
-timeout /t 3 >nul
-goto :dashboard_loop
+rem The native app starts the local dashboard without a console.
+goto :start
 
 :agent
 call :require_admin agent
@@ -118,35 +90,21 @@ timeout /t 3 >nul
 goto :agent_loop
 
 :autostart_on
-call :require_admin autostart-on
-if errorlevel 2 exit /b 0
-if errorlevel 1 exit /b 1
-set "ROOT=%~dp0"
-if "%ROOT:~-1%"=="\" set "ROOT=%ROOT:~0,-1%"
-set "TASK_MAIN=DifSync"
-set "TR_MAIN=\"%ROOT%\DifSync.bat\" start --elevated"
-echo [INFO] Removing legacy startup tasks (if present)...
-schtasks /Delete /F /TN "DifSync Dashboard" >nul 2>&1
-schtasks /Delete /F /TN "DifSync RemoteAgent" >nul 2>&1
-echo [INFO] Creating scheduled task: %TASK_MAIN%
-schtasks /Create /F /TN "%TASK_MAIN%" /SC ONLOGON /DELAY 0000:10 /RL HIGHEST /TR "%TR_MAIN%" >nul
-if errorlevel 1 (
-  echo [ERROR] Failed creating task: %TASK_MAIN%
+if not exist "%~dp0DifSync.exe" (
+  echo [ERROR] DifSync.exe is missing.
   exit /b 1
 )
-schtasks /Run /TN "%TASK_MAIN%" >nul 2>&1
-echo [OK] DifSync auto-start enabled.
+reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v "DifSync Lighting Studio" /t REG_SZ /d "\"%~dp0DifSync.exe\"" /f >nul
+if errorlevel 1 (
+  echo [ERROR] Could not register the desktop app at login.
+  exit /b 1
+)
+echo [OK] DifSync desktop autostart enabled; no console watchdogs.
 exit /b 0
 
 :autostart_off
-call :require_admin autostart-off
-if errorlevel 2 exit /b 0
-if errorlevel 1 exit /b 1
-echo [INFO] Deleting startup tasks...
-schtasks /Delete /F /TN "DifSync" >nul 2>&1
-schtasks /Delete /F /TN "DifSync Dashboard" >nul 2>&1
-schtasks /Delete /F /TN "DifSync RemoteAgent" >nul 2>&1
-echo [OK] DifSync auto-start disabled.
+reg delete "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v "DifSync Lighting Studio" /f >nul 2>&1
+echo [OK] DifSync desktop autostart disabled.
 exit /b 0
 
 :ensure_venv

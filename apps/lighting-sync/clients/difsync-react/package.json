@@ -11,7 +11,8 @@
     "preview": "vite preview",
     "android:sync": "npm run build && npx cap sync android",
     "android:run": "npm run build && npx cap run android",
-    "android:deploy": "npm run build && npx cap sync android && cd android && gradlew.bat :app:installDebug"
+    "android:deploy": "npm run build && npx cap sync android && cd android && gradlew.bat :app:installDebug",
+    "postbuild": "node rig-extension/install.cjs"
   },
   "dependencies": {
     "@capacitor/android": "^7.4.3",

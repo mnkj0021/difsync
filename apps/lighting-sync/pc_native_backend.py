@@ -293,6 +293,7 @@ def _run_powershell_json(script: str, timeout_s: float = 8.0) -> list[dict[str, 
             text=True,
             timeout=timeout_s,
             check=False,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
     except Exception:
         return []
@@ -321,6 +322,7 @@ def _service_state(name: str, timeout_s: float = 3.0) -> str:
             text=True,
             timeout=timeout_s,
             check=False,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
     except Exception:
         return "unavailable"
@@ -343,6 +345,7 @@ def _service_binary_path(name: str, timeout_s: float = 3.0) -> str:
             text=True,
             timeout=timeout_s,
             check=False,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
     except Exception:
         return ""
@@ -1004,6 +1007,19 @@ class NativePcRgbManager:
         if corsair_ram_device is not None:
             found.append(corsair_ram_device)
 
+        # The Aerox 3 Wireless exposes both a 2.4 GHz receiver (0x1838)
+        # and a wired HID interface (0x183A) when the USB cable is connected.
+        # They are two transports for one physical mouse, not two lights.
+        # Keep the wireless controller first to retain existing saved layout IDs.
+        aerox_pids = {
+            dev.pid for dev in found if dev.driver == "steelseries_aerox_wireless"
+        }
+        if 0x1838 in aerox_pids and 0x183A in aerox_pids:
+            found = [
+                dev for dev in found
+                if dev.driver != "steelseries_aerox_wireless" or dev.pid != 0x183A
+            ]
+
         unique: dict[int, NativeDevice] = {}
         for dev in found:
             if dev.id not in unique:
@@ -1068,9 +1084,22 @@ class NativePcRgbManager:
     def _apply_steelseries_aerox_pixels(
         self, dev: NativeDevice, pixels: list[tuple[int, int, int]], fallback: tuple[int, int, int]
     ) -> None:
-        handle = self._open_hid(dev.path)
+        target_path = dev.path
+        target_pid = dev.pid
+        if dev.pid == 0x1838 and hid is not None:
+            # Prefer wired HID when the same Aerox is plugged in. Its receiver
+            # remains enumerated even while it cannot alter the wired mouse LEDs.
+            wired = next((row for row in hid.enumerate()
+                          if int(row.get("vendor_id") or 0) == STEELSERIES_VID
+                          and int(row.get("product_id") or 0) == 0x183A
+                          and row.get("interface_number") == 3
+                          and int(row.get("usage_page") or 0) == 0xFFC0), None)
+            if wired:
+                target_path = _bytes_path(wired.get("path"))
+                target_pid = 0x183A
+        handle = self._open_hid(target_path)
         try:
-            cmd_flag = 0x40 if dev.pid in STEELSERIES_AEROX_WIRELESS_PIDS else 0x00
+            cmd_flag = 0x40 if target_pid == 0x1838 else 0x00
             colors = _normalize_pixels(pixels, 3, fallback)
 
             for zone in (0, 1, 2):
@@ -1132,7 +1161,8 @@ class NativePcRgbManager:
                 packet[base + 2] = colors[i][1]
                 packet[base + 3] = colors[i][2]
 
-            handle.send_feature_report(packet)
+            if handle.send_feature_report(packet) <= 0:
+                raise RuntimeError("SteelSeries Apex RGB feature report was not accepted")
         finally:
             handle.close()
 
@@ -1156,12 +1186,18 @@ class NativePcRgbManager:
         if channels <= 0:
             return []
 
-        # Firmware request (not required for color, but matches device flow).
-        handle.write([0x10, 0x01] + [0x00] * 62)
-        self._nzxt_wait_reply(handle, 0x11, 0x01, timeout_s=1.5)
-
-        handle.write([0x20, 0x03] + [0x00] * 62)
-        mapping = self._nzxt_wait_reply(handle, 0x21, 0x03, timeout_s=4.5)
+        # CAM can reject reads while leaving the RGB output reports writable.
+        # Mapping queries are optional for color writes, so fall back to the
+        # declared controller channels on transport read errors.
+        mapping = None
+        try:
+            handle.write([0x10, 0x01] + [0x00] * 62)
+            self._nzxt_wait_reply(handle, 0x11, 0x01, timeout_s=1.5)
+            handle.write([0x20, 0x03] + [0x00] * 62)
+            mapping = self._nzxt_wait_reply(handle, 0x21, 0x03, timeout_s=4.5)
+        except OSError:
+            # No fan-speed or pump commands are sent by this driver.
+            mapping = None
         if mapping is None:
             fallback = [20] * channels
             self._nzxt_led_cache[dev.id] = (time.time(), fallback)
@@ -1212,7 +1248,8 @@ class NativePcRgbManager:
                 packet0[2] = (1 << channel)
                 packet0[3] = 0x00
                 packet0[4:64] = color_stream[0:60]
-                handle.write(packet0)
+                if handle.write(packet0) <= 0:
+                    raise RuntimeError(f"NZXT RGB channel {channel + 1} rejected color packet")
 
                 if leds > 20:
                     packet1 = [0x00] * 64
@@ -1221,7 +1258,8 @@ class NativePcRgbManager:
                     packet1[2] = (1 << channel)
                     packet1[3] = 0x00
                     packet1[4:64] = color_stream[60:120]
-                    handle.write(packet1)
+                    if handle.write(packet1) <= 0:
+                        raise RuntimeError(f"NZXT RGB channel {channel + 1} rejected second color packet")
 
                 apply_packet = [0x00] * 64
                 apply_packet[0] = 0x22
@@ -1232,7 +1270,8 @@ class NativePcRgbManager:
                 apply_packet[10] = 0x80
                 apply_packet[12] = 0x32
                 apply_packet[15] = 0x01
-                handle.write(apply_packet)
+                if handle.write(apply_packet) <= 0:
+                    raise RuntimeError(f"NZXT RGB channel {channel + 1} rejected apply packet")
         finally:
             handle.close()
 

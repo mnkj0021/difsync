@@ -30,6 +30,15 @@ except Exception:
 load_dotenv()
 
 ROOT = Path(__file__).resolve().parent
+def gpu_openrgb_env() -> dict[str, str]:
+    """Launch OpenRGB with an isolated GPU-only profile, never global profiles."""
+    env = os.environ.copy()
+    isolated = ROOT / "gpu-openrgb"
+    env["APPDATA"] = str(isolated / "Roaming")
+    env["LOCALAPPDATA"] = str(isolated / "Local")
+    return env
+
+
 CONFIG_PATH = ROOT / "config.json"
 PRESETS_PATH = ROOT / "dashboard_presets.json"
 STATE_PATH = ROOT / "difsync_state.json"
@@ -218,14 +227,14 @@ def _scene_from_prompt_fallback(prompt: str) -> dict[str, Any]:
     }
 
 
-def generate_ai_scene(prompt: str) -> dict[str, Any]:
+def generate_ai_scene(prompt: str, model_override: str | None = None) -> dict[str, Any]:
     prompt = str(prompt or "").strip()
     if not prompt:
         raise ValueError("Prompt is required")
 
     state = load_runtime_state()
     ollama_url = os.getenv("DIFSYNC_SYNC_OLLAMA_URL", "http://127.0.0.1:11434").rstrip("/")
-    model = str(state.get("ai_model") or os.getenv("DIFSYNC_SYNC_AI_MODEL", "")).strip()
+    model = str(model_override or state.get("ai_model") or os.getenv("DIFSYNC_SYNC_AI_MODEL", "")).strip()
 
     try:
         try:
@@ -264,15 +273,18 @@ def generate_ai_scene(prompt: str) -> dict[str, Any]:
             "You are DifSync lighting director. Return ONLY compact JSON with keys: "
             "name (string), rgb ([0-255,0-255,0-255]), brightness (0-100), "
             "effect (one of static,wave,pulse,chase,rainbow), speed_ms (45-500), "
-            "palette (2-5 RGB arrays), reason (short string). No markdown."
+            "palette (2-5 RGB arrays), zone_colors (object with front,top,rear,bottom,gpu,motherboard,external mapped to RGB arrays), "
+            "reason (short string). Tailor zone_colors to the real chassis described by the user. No markdown."
         )
         payload = {
             "model": model,
             "stream": False,
             "prompt": f"{system}\nUser lighting request: {prompt}",
-            "options": {"temperature": 0.35},
+            "format": "json",
+            "think": False,
+            "options": {"temperature": 0.32, "num_predict": 480, "num_ctx": 4096},
         }
-        result = requests.post(f"{ollama_url}/api/generate", json=payload, timeout=8).json()
+        result = requests.post(f"{ollama_url}/api/generate", json=payload, timeout=42).json()
         raw = str(result.get("response") or "").strip()
         match = re.search(r"\{.*\}", raw, flags=re.S)
         if not match:
@@ -300,6 +312,9 @@ def generate_ai_scene(prompt: str) -> dict[str, Any]:
             "source": "ollama",
             "model": model,
             "reason": str(data.get("reason") or "")[:240],
+            "zone_colors": {str(k): [clamp(x) for x in v[:3]]
+                for k,v in (data.get("zone_colors") or {}).items()
+                if k in {"front","top","rear","bottom","gpu","motherboard","external"} and isinstance(v,list) and len(v)>=3},
         }
     except Exception as exc:
         fallback = _scene_from_prompt_fallback(prompt)
@@ -560,7 +575,13 @@ def _set_govee_cmd(device_id: str, model: str, name: str, value: Any) -> tuple[b
         f"{GOVEE_BASE}/devices/control", headers=govee_headers(), json=payload, timeout=GOVEE_CONTROL_TIMEOUT
     )
     if response.status_code == 200:
-        return True, "ok"
+        try:
+            data=response.json()
+            if isinstance(data,dict) and data.get("code") not in (None,0,200,"200"):
+                return False, f"Govee API rejected: {data.get('code')}: {str(data.get('message') or '')[:100]}"
+        except (ValueError,TypeError):
+            pass
+        return True,"accepted by Govee cloud"
     return False, f"{response.status_code}: {response.text[:180]}"
 
 
@@ -740,6 +761,8 @@ class OpenRGBManager:
         if not Path(exe).exists():
             self._last_error = f"OPENRGB executable not found: {exe}"
             return False
+        if self._spawned_process is not None and self._spawned_process.poll() is None:
+            return True
         try:
             self._spawned_process = subprocess.Popen(
                 [
@@ -749,8 +772,8 @@ class OpenRGBManager:
                     str(host),
                     "--server-port",
                     str(port),
-                    "--startminimized",
                 ],
+                env=gpu_openrgb_env(),
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
@@ -1146,6 +1169,10 @@ class HybridPcRgbManager:
     """Native DifSync control with OpenRGB only for devices that need it."""
 
     OPENRGB_ID_BASE = 1_600_000_000
+    # OpenRGB SDK controller IDs are small enumeration indexes. Reserve a
+    # narrow public-ID band instead of treating every large native CRC32 ID as
+    # a bridge device (Aerox native IDs can legitimately be ~1.9 billion).
+    OPENRGB_ID_SPAN = 1_000_000
     BRIDGE_NATIVE_DRIVERS: set[str] = set()
 
     def __init__(self) -> None:
@@ -1172,7 +1199,8 @@ class HybridPcRgbManager:
 
     @classmethod
     def _is_bridge_public_id(cls, device_id: int) -> bool:
-        return int(device_id) >= cls.OPENRGB_ID_BASE
+        value=int(device_id)
+        return cls.OPENRGB_ID_BASE <= value < (cls.OPENRGB_ID_BASE + cls.OPENRGB_ID_SPAN)
 
     @staticmethod
     def _bridge_candidate(row: dict[str, Any]) -> bool:
@@ -1282,6 +1310,7 @@ class HybridPcRgbManager:
                 completed = subprocess.run(
                     [exe, "--device", str(name), "--mode", "Direct", "--color", color_hex],
                     cwd=str(ROOT),
+                    env=gpu_openrgb_env(),
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.PIPE,
                     text=True,
@@ -1305,9 +1334,9 @@ class HybridPcRgbManager:
                                     return
                                 last_error = f"GPU verification mismatch: requested {rgb}, observed {observed}"
                             else:
-                                return
+                                last_error = "OpenRGB GPU returned no readable LED colors"
                         else:
-                            return
+                            last_error = "GPU missing from OpenRGB after RGB write"
                     except Exception as exc:
                         last_error = exc_text(exc)
                 time.sleep(0.12)
@@ -1544,7 +1573,14 @@ class PixelAnimator:
         for raw_x in positions:
             x = max(0.0, min(1.0, float(raw_x)))
 
-            if name == "static":
+            if name.startswith("layout_"):
+                import rig_sequence
+                sequence_elapsed=elapsed if int(direction)>=0 else -elapsed
+                amount=rig_sequence.sampled_intensity(
+                    x,sequence_elapsed,cycle_seconds=1.0/max(0.001,float(speed)),
+                    effect=name,width=0.22/max(0.45,min(2.0,density)))
+                color=cls._scale(p[0],amount)
+            elif name == "static":
                 color = p[0]
             elif name == "gradient":
                 color = cls._palette_at(p, x)
@@ -1693,6 +1729,8 @@ class PixelAnimator:
                     "direction": group.get("direction"),
                     "started_at": group.get("started_at"),
                     "clock": "monotonic_shared",
+                    "route":group.get("route"),
+                    "cycle_seconds":group.get("cycle_seconds"),
                 }
             ]
 
@@ -1706,6 +1744,11 @@ class PixelAnimator:
         speed: float = 1.0,
         spread: float = 1.0,
         direction: int = 1,
+        palette_by_device: dict[int, list[tuple[int, int, int]]] | None = None,
+        positions_by_device: dict[int, list[float]] | None = None,
+        base_colors_by_device: dict[int, list[tuple[int, int, int]]] | None = None,
+        route: str | None = None,
+        cycle_seconds: float | None = None,
     ) -> dict[str, Any]:
         ordered: list[int] = []
         seen: set[int] = set()
@@ -1721,6 +1764,17 @@ class PixelAnimator:
 
         self.stop(device_id=None)
         devices = self._resolve_devices(ordered)
+        if positions_by_device is not None:
+            for row in devices:
+                positions=positions_by_device.get(int(row["device_id"]))
+                if positions is None or len(positions)!=int(row["led_count"]):
+                    raise ValueError("Layout position count does not match LED count for "+row["name"])
+                row["positions"]=[max(0.,min(1.,float(v))) for v in positions]
+        if base_colors_by_device is not None:
+            for row in devices:
+                pixels=base_colors_by_device.get(int(row["device_id"]))
+                if pixels is None or len(pixels)!=int(row["led_count"]):
+                    raise ValueError("Scene color count does not match LED count for "+row["name"])
         stop_event = threading.Event()
         start_clock = time.monotonic() + 0.12
         requested_s = max(0.025, min(0.5, int(interval_ms) / 1000.0))
@@ -1729,6 +1783,7 @@ class PixelAnimator:
         public_devices: list[dict[str, Any]] = []
 
         def worker(row: dict[str, Any]) -> None:
+            record=next((x for x in public_devices if x["device_id"]==int(row["device_id"])),None)
             driver = str(row.get("driver") or "")
             safe_floor = float(self.DRIVER_MIN_INTERVALS.get(driver, 0.050))
             cadence = max(requested_s, safe_floor)
@@ -1746,25 +1801,40 @@ class PixelAnimator:
                         effect=effect,
                         positions=list(row["positions"]),
                         elapsed=elapsed,
-                        palette=palette,
-                        fallback=fallback,
+                        palette=(palette_by_device or {}).get(int(row["device_id"]), palette),
+                        fallback=((palette_by_device or {}).get(int(row["device_id"]), [fallback]) or [fallback])[0],
                         speed=speed,
                         spread=spread,
                         direction=direction,
                     )
+                    if base_colors_by_device is not None:
+                        # Layout animation provides a luminance envelope; the
+                        # physical segment colors are retained per LED/channel.
+                        base=base_colors_by_device[int(row["device_id"])]
+                        frame=[self._scale(col,max(px)/255.0)
+                               for col,px in zip(base,frame)]
                     try:
                         writer(
                             int(row["device_id"]),
                             frame,
-                            fallback=fallback,
+                            fallback=((palette_by_device or {}).get(int(row["device_id"]), [fallback]) or [fallback])[0],
                             led_count_hint=int(row.get("led_count") or len(frame) or 1),
                         )
                     except TypeError:
-                        writer(int(row["device_id"]), frame, fallback=fallback)
+                        writer(int(row["device_id"]), frame, fallback=((palette_by_device or {}).get(int(row["device_id"]), [fallback]) or [fallback])[0])
                     errors = 0
-                except Exception:
+                    if record is not None:
+                        record["frames_delivered"] += 1
+                        record["consecutive_errors"]=0
+                        record["last_error"]=None
+                        record["last_frame_unix"]=time.time()
+                except Exception as exc:
                     errors += 1
+                    if record is not None:
+                        record["consecutive_errors"]=errors
+                        record["last_error"]=str(exc)[:160]
                     if errors >= 5:
+                        if record is not None:record["active"]=False
                         break
 
                 tick += 1
@@ -1781,6 +1851,10 @@ class PixelAnimator:
                     "driver": str(row.get("driver") or ""),
                     "led_count": int(row.get("led_count") or 1),
                     "cadence_ms": int(round(cadence * 1000)),
+                    "frames_delivered":0,
+                    "consecutive_errors":0,
+                    "active":True,
+                    "last_error":None,
                 }
             )
             thread = threading.Thread(
@@ -1803,6 +1877,8 @@ class PixelAnimator:
             "direction": 1 if int(direction) >= 0 else -1,
             "started_at": time.time(),
             "clock_start": start_clock,
+            "route":route,
+            "cycle_seconds":cycle_seconds,
         }
         with self._lock:
             self._group = group
@@ -1820,6 +1896,9 @@ class PixelAnimator:
             "spread": group["spread"],
             "direction": group["direction"],
             "clock": "monotonic_shared",
+            "route": route,
+            "cycle_seconds":cycle_seconds,
+            "starts_at_unix":time.time()+max(0.,start_clock-time.monotonic()),
         }
 
     def start(
@@ -2088,6 +2167,16 @@ def api_openrgb_animation_group_start() -> Any:
         brightness = brightness_from_payload(payload, default=100)
         scaled_palette = [apply_brightness(px, brightness) for px in palette]
         scaled_fallback = apply_brightness(fallback, brightness)
+        raw_by_device=payload.get("palette_by_device") or {}
+        if not isinstance(raw_by_device,dict): raise ValueError("palette_by_device must be an object")
+        if len(raw_by_device)>30:raise ValueError("Too many per-device palettes")
+        palette_by_device={}
+        for key,values in raw_by_device.items():
+            ident=int(key)
+            if ident not in device_ids:continue
+            if not isinstance(values,list) or not 1<=len(values)<=6:raise ValueError("Invalid device palette")
+            prepared=[tuple(apply_brightness(rgb_from_payload({"rgb":value}),brightness)) for value in values]
+            palette_by_device[ident]=prepared
     except Exception as exc:
         return jsonify({"ok": False, "error": exc_text(exc)}), 400
 
@@ -2101,6 +2190,7 @@ def api_openrgb_animation_group_start() -> Any:
             speed=speed,
             spread=spread,
             direction=direction,
+            palette_by_device=palette_by_device,
         )
         return jsonify({"ok": True, "brightness": brightness, **result})
     except Exception as exc:
@@ -2320,6 +2410,304 @@ def api_presets_apply() -> Any:
     except Exception as exc:
         return jsonify({"ok": False, "error": exc_text(exc)}), 500
 
+
+@app.route("/api/system/build")
+def api_system_build():
+    ok,error=require_auth()
+    if not ok:return error
+    return jsonify({"ok":True,"contract":3,"name":"DifSync Lighting Studio","engine":"rig-sequence-v3"})
+
+# Rig Studio is local-only UI functionality, never part of DifSync remote transport.
+import rig_studio as rig
+import rig_ai_director as director
+
+@app.route("/api/rig/status")
+def api_rig_status():
+    ok, error = require_auth()
+    if not ok: return error
+    profile=rig.profile_load()
+    try:
+        pc=openrgb.list_devices()
+    except Exception as exc:
+        pc=[]
+        pc_error=exc_text(exc)
+    else:
+        pc_error=""
+    try:
+        room=list_govee_devices()
+    except Exception: room=[]
+    return jsonify({
+        "ok": True, "profile":profile,"cases":rig.CASES,
+        "inventory":rig.inventory(),"telemetry":rig.telemetry(),
+        "pc_devices":pc,"govee_devices":room,"pc_error":pc_error,
+        "rgb_owners":rig.rgb_owners(),
+        "last_scene":rig.last_scene(),
+        "limitations":["Case and fan placement require confirmation","Lighting colors show accepted commands, not sensor-verified physical color","GPU uses a slower static bridge, and Govee cloud is not frame-synchronous"]
+    })
+
+@app.route("/api/rig/conflicts")
+def api_rig_conflicts():
+    ok, error = require_auth()
+    if not ok: return error
+    return jsonify({"ok": True, **rig.rgb_owners()})
+
+@app.route("/api/power/profile",methods=["GET","POST"])
+def api_power_profile():
+    ok,error=require_auth()
+    if not ok:return error
+    import power_estimator
+    try:
+        if request.method=="POST":
+            body=request.get_json(silent=True)
+            if not isinstance(body,dict) or "settings" not in body:
+                raise ValueError("settings object required")
+            profile=power_estimator.save_config(body.get("settings"))
+        else:
+            profile=power_estimator.load_config()
+        return jsonify({"ok":True,"profile":profile,
+          "note":"Hardware assumptions and calibration are estimates, never metered values."})
+    except (ValueError,TypeError) as exc:
+        return jsonify({"ok":False,"error":str(exc)}),400
+    except Exception as exc:
+        return jsonify({"ok":False,"error":str(exc)}),500
+
+@app.route("/api/power/calibrate",methods=["POST"])
+def api_power_calibrate():
+    ok,error=require_auth()
+    if not ok:return error
+    import power_estimator
+    try:
+        body=request.get_json(silent=True) or {}
+        if not isinstance(body,dict):raise ValueError("Expected JSON object")
+        if body.get("reset") is True:
+            cfg=power_estimator.clear_calibration()
+        else:
+            wall=body.get("measured_wall_w")
+            t=rig.telemetry()
+            if t.get("cpu_power_status")!="measured":
+                raise ValueError("CPU sensor must be connected for calibration")
+            cfg=power_estimator.calibrate(wall,t.get("cpu_package_w"),t.get("gpu_power_w"),
+                cpu_temp=t.get("cpu_temp_c"),disk_mbs=t.get("disk_io_mbs"))
+        return jsonify({"ok":True,"profile":cfg,
+          "note":"Single-point PC-only meter calibration, not continuous wall measurement."})
+    except (ValueError,TypeError) as exc:
+        return jsonify({"ok":False,"error":str(exc)}),400
+    except Exception as exc:
+        return jsonify({"ok":False,"error":str(exc)}),500
+
+@app.route("/api/rig/telemetry")
+def api_rig_telemetry():
+    ok, error = require_auth()
+    if not ok:return error
+    return jsonify({"ok":True,"telemetry":rig.telemetry(),"last_scene":rig.last_scene()})
+
+@app.route("/api/rig/profile",methods=["POST"])
+def api_rig_profile():
+    ok,error=require_auth()
+    if not ok:return error
+    try:
+        updated=rig.profile_save(request.get_json(silent=True) or {})
+        return jsonify({"ok":True,"profile":updated})
+    except Exception as exc:
+        return jsonify({"ok":False,"error":exc_text(exc)}),400
+
+@app.route("/api/rig/apply",methods=["POST"])
+def api_rig_apply():
+    ok,error=require_auth()
+    if not ok:return error
+    try:
+        payload=request.get_json(silent=True) or {}
+        result=rig.scene_apply(
+            payload,openrgb,openrgb.list_devices(),list_govee_devices(),
+            stop_pixel_animation_for_targets,apply_govee_color,
+            apply_brightness,rgb_from_payload,brightness_from_payload
+        )
+        return jsonify(result)
+    except Exception as exc:
+        return jsonify({"ok":False,"error":exc_text(exc)}),400
+
+@app.route("/api/rig/suggest",methods=["GET","POST"])
+def api_rig_suggest():
+    ok,error=require_auth()
+    if not ok:return error
+    try:
+        profile=rig.profile_load()
+        pc=openrgb.list_devices()
+        room=list_govee_devices()
+        context=director.rig_context(profile,rig.inventory(),pc,room,rig.CASES)
+        if request.method=="GET":
+            return jsonify({"ok":True,"scenes":director.preset_scenes(context),
+                            "suggestions":director.preset_scenes(context),"context":context})
+        req=request.get_json(silent=True) or {}
+        prompt=str(req.get("prompt") or "").strip()[:950]
+        if not prompt:return jsonify({"ok":False,"error":"Describe a lighting atmosphere"}),400
+        local_models=[]
+        try:
+            tags=requests.get(os.getenv("DIFSYNC_SYNC_OLLAMA_URL","http://127.0.0.1:11434").rstrip("/")+"/api/tags",timeout=2).json()
+            local_models=[str(x.get("name") or "") for x in tags.get("models",[]) if isinstance(x,dict)]
+        except Exception:
+            pass
+        model="tinyllama:1.1b"
+        if model not in local_models:
+            return jsonify({"ok":False,"error":"TinyLlama 1.1B is not available in the local Ollama models. No larger-model substitution was made."}),503
+        result=director.design(prompt,context,model,
+                      os.getenv("DIFSYNC_SYNC_OLLAMA_URL","http://127.0.0.1:11434"),timeout=48)
+        return jsonify({"ok":True,**result})
+    except Exception as exc:
+        return jsonify({"ok":False,"error":exc_text(exc)}),500
+
+# Layout animation endpoints are local lighting functionality only.
+import rig_sequence as sequence
+
+def _physical_sequence_plan(payload):
+    profile=rig.profile_load()
+    route=str(payload.get("route") or "airflow")
+    keys=payload.get("device_keys")
+    if keys is not None:
+        if not isinstance(keys,list) or len(keys)>40 or not all(isinstance(x,str) for x in keys):
+            raise ValueError("device_keys must contain selected device identifiers")
+        keys=list(dict.fromkeys(keys))
+    # Native inventory only for real-time streams. The GPU's OpenRGB bridge is
+    # intentionally not probed during animation startup.
+    source=getattr(openrgb,"native",openrgb)
+    hardware=source.list_devices()
+    known={int(x["id"]):x for x in hardware}
+    # The GPU bridge is intentionally excluded from fast native LED writes,
+    # but remains a physical waypoint in the case animation route.
+    try:
+        extras=openrgb.list_devices()
+        for row in extras:
+            if str(row.get("type") or "").upper()=="GPU":
+                ident=int(row["id"])
+                if ident not in known:
+                    hardware.append(row)
+                    known[ident]=row
+    except Exception:
+        pass
+    room=[]
+    if keys is None or any(str(k).startswith("govee:") for k in keys):
+        try:room=list_govee_devices()
+        except Exception:room=[]
+    if keys is not None:
+        for key in keys:
+            if key.startswith("pc:") and int(key[3:]) not in known:
+                # This may be the GPU bridge. Include its public inventory as a
+                # static anchor but never send high-frequency GPU commands.
+                try:
+                    target=int(key[3:])
+                    found=next((x for x in openrgb.list_devices() if int(x.get("id") or -1)==target),None)
+                    if found:
+                        hardware.append(found)
+                        known[target]=found
+                except Exception:pass
+    layout={}
+    candidate_ids=[int(k[3:]) for k in keys if str(k).startswith("pc:")] if keys is not None else [int(row["id"]) for row in hardware]
+    for ident in candidate_ids:
+        row=known.get(ident)
+        if not row:continue
+        key="pc:"+str(ident)
+        if str(row.get("type") or "").upper()=="GPU":continue
+        if row.get("per_led_supported") is False:continue
+        try:
+            native_layout=openrgb.get_device_layout(ident)
+            leds=int(native_layout.get("led_count") or 0) if isinstance(native_layout,dict) else 0
+            if isinstance(native_layout,dict) and leds>0:
+                layout[key]=native_layout
+        except Exception:
+            # Writable HID devices without readable topology fall back to their
+            # inventory LED count; they are not discarded from the sequence.
+            pass
+    return sequence.plan(profile,hardware,room,layouts=layout,route=route,selected=keys)
+
+@app.route("/api/rig/sequence/plan",methods=["POST"])
+def api_rig_sequence_plan():
+    ok,error=require_auth()
+    if not ok:return error
+    try:
+        payload=request.get_json(silent=True) or {}
+        result=_physical_sequence_plan(payload)
+        # Positions/segment indices are for the engine; send concise metadata
+        # to the graphical studio and never expose remote-access credentials.
+        return jsonify({"ok":True,**{k:v for k,v in result.items()
+            if k not in ("positions","segment_zones")}})
+    except (ValueError,TypeError) as exc:
+        return jsonify({"ok":False,"error":exc_text(exc)}),400
+    except Exception as exc:
+        return jsonify({"ok":False,"error":exc_text(exc)}),500
+
+@app.route("/api/rig/sequence/start",methods=["POST"])
+def api_rig_sequence_start():
+    ok,error=require_auth()
+    if not ok:return error
+    try:
+        payload=request.get_json(silent=True) or {}
+        effect=str(payload.get("effect") or "layout_flow").lower()
+        if effect not in sequence.SUPPORTED_EFFECTS:raise ValueError("Invalid route animation effect")
+        cycle=max(2.5,min(18.,float(payload.get("cycle_seconds") or 5.)))
+        interval=max(45,min(450,int(payload.get("interval_ms") or 75)))
+        brightness=max(0,min(100,int(payload.get("brightness",75))))
+        spread=max(0.4,min(4.0,float(payload.get("spread",1.0))))
+        direction=-1 if int(payload.get("direction",1))<0 else 1
+        zones=payload.get("zone_colors") or {}
+        devices=payload.get("device_colors") or {}
+        if not isinstance(zones,dict) or not isinstance(devices,dict):
+            raise ValueError("Color mappings must be objects")
+        layout=_physical_sequence_plan(payload)
+        moving=layout["dynamic"]
+        if not moving:raise ValueError("No compatible animated RGB controllers selected")
+        base=sequence.base_colors(layout,zones,devices,brightness)
+        selected=[item["device_id"] for item in moving]
+        result=pixel_animator.start_group(
+            device_ids=selected,effect=effect,interval_ms=interval,
+            palette=[(255,255,255)],fallback=(255,255,255),
+            speed=1./cycle,spread=spread,direction=direction,
+            positions_by_device=layout["positions"],
+            base_colors_by_device=base,
+            route=layout["route"],cycle_seconds=cycle,
+        )
+        return jsonify({"ok":True,**result,
+            "stages":layout["stages"],
+            "anchors":layout["anchors"],
+            "warning":layout["warning"]})
+    except (ValueError,TypeError) as exc:
+        return jsonify({"ok":False,"error":exc_text(exc)}),400
+    except Exception as exc:
+        return jsonify({"ok":False,"error":exc_text(exc)}),500
+
+@app.route("/api/rig/sequence/status")
+def api_rig_sequence_status():
+    ok,error=require_auth()
+    if not ok:return error
+    return jsonify({"ok":True,"animations":pixel_animator.status()})
+
+@app.route("/api/rig/sequence/stop",methods=["POST"])
+def api_rig_sequence_stop():
+    ok,error=require_auth()
+    if not ok:return error
+    return jsonify({"ok":True,**pixel_animator.stop(device_id=None),
+                    "note":"Controllers retain their last frame until another static scene is applied."})
+
+@app.route("/api/rig/topology")
+def api_rig_topology():
+    ok,error=require_auth()
+    if not ok:return error
+    rows={}
+    try:
+        for dev in openrgb.list_devices():
+            if str(dev.get("driver"))!="nzxt_hue2":continue
+            ident=int(dev["id"])
+            try:
+                data=openrgb.get_device_layout(ident)
+                rows["pc:"+str(ident)]=[
+                    {"id":int(seg.get("id",idx)),"label":str(seg.get("label") or "Channel "+str(idx+1)),
+                     "start":int(seg.get("start") or 0),"count":int(seg.get("count") or 0)}
+                    for idx,seg in enumerate(data.get("segments") or [])
+                ]
+            except Exception:
+                rows["pc:"+str(ident)]=[]
+    except Exception as exc:
+        return jsonify({"ok":False,"error":exc_text(exc)}),500
+    return jsonify({"ok":True,"segments":rows,"channel_mapping":rig.profile_load().get("channel_mapping") or {}})
 
 if __name__ == "__main__":
     print(f"[Dashboard] http://{APP_HOST}:{APP_PORT} (PC RGB backend: {PC_RGB_BACKEND_ACTIVE})")
