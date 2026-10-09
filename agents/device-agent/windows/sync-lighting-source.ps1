@@ -13,8 +13,11 @@ if (-not $SyncRoot) {
     $SyncRoot = $configured
   } else {
     foreach ($letter in [char[]]"CDEFGHIJKLMNOPQRSTUVWXYZ") {
-      $candidate = "$letter`:\DifSync"
-      if (Test-Path (Join-Path $candidate "dashboard_server.py")) { $SyncRoot = $candidate; break }
+      $driveRoot = "$letter`:\"
+      if (-not (Test-Path -LiteralPath $driveRoot)) { continue }
+      $candidate = Join-Path $driveRoot "DifSync"
+      if (-not (Test-Path -LiteralPath $candidate)) { continue }
+      if (Test-Path -LiteralPath (Join-Path $candidate "dashboard_server.py")) { $SyncRoot = $candidate; break }
     }
   }
 }
