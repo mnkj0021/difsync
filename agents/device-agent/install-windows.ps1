@@ -7,15 +7,23 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$ProgressPreference = "SilentlyContinue"
+Write-Host ""
+Write-Host "DifSync Remote Access | Windows Setup" -ForegroundColor White
+Write-Host "------------------------------------"
+Write-Host "[1/5] Checking requirements" -ForegroundColor Cyan
 if (-not (Get-Command node -ErrorAction SilentlyContinue)) { throw "Node.js is required." }
 if (-not (Get-Command git -ErrorAction SilentlyContinue)) { throw "Git is required." }
 
+Write-Host "[2/5] Installing files" -ForegroundColor Cyan
 if (Test-Path $InstallDir) {
-  Set-Location $InstallDir
-  git pull --ff-only
+  git -C $InstallDir pull --quiet --ff-only
+  if ($LASTEXITCODE -ne 0) { throw "Unable to update local files. Check the network or local Git changes." }
+  Write-Host "  [OK] Existing installation updated"
 } else {
-  git clone https://github.com/mnkj0021/difsync.git $InstallDir
-  Set-Location $InstallDir
+  git clone --quiet --depth 1 https://github.com/mnkj0021/difsync.git $InstallDir
+  if ($LASTEXITCODE -ne 0) { throw "Download failed. Check Git and internet access." }
+  Write-Host "  [OK] Remote Access files downloaded"
 }
 
 # The remote agent currently imports only built-in Node.js modules.
@@ -31,7 +39,8 @@ if (($manifest.dependencies -and @($manifest.dependencies.PSObject.Properties).C
     ($manifest.optionalDependencies -and @($manifest.optionalDependencies.PSObject.Properties).Count -gt 0)) {
   throw "The device agent now requires dependencies. Use a targeted workspace-only install; do not install the cloud server on this PC."
 }
-Write-Host "Remote agent ready (no native compiler or npm install required)."
+Write-Host "  [OK] Remote agent ready. No native compiler or npm build required." -ForegroundColor Green
+Write-Host "[3/5] Verifying pairing" -ForegroundColor Cyan
 
 if ($PairCode) { $env:DIFSYNC_PAIR_CODE = $PairCode }
 $env:DIFSYNC_DEVICE_NAME = $DeviceName
@@ -45,7 +54,7 @@ if ($InstallLightingSync) {
     & $syncUpdater -InstallDir $InstallDir
   }
 } else {
-  Write-Host "Skipping optional Lighting Studio setup on this device."
+  Write-Host "  [OK] Lighting Studio is optional and was skipped"
 }
 
 $state = Join-Path $env:USERPROFILE ".difsync-agent\config.json"
@@ -77,6 +86,15 @@ if (-not (Test-Path $state)) {
   }
 }
 
+if (-not (Test-Path -LiteralPath $state)) { throw "Pairing confirmation is missing. Generate a fresh pairing code." }
+try {
+  $pairedConfig = Get-Content -LiteralPath $state -Raw | ConvertFrom-Json
+  if (-not ($pairedConfig.agent_id -and $pairedConfig.agent_token)) { throw "Incomplete pairing information" }
+} catch {
+  throw "Pairing confirmation is invalid. Please re-pair this device."
+}
+Write-Host "  [OK] Pairing verified" -ForegroundColor Green
+Write-Host "[4/5] Preparing Windows client" -ForegroundColor Cyan
 # DifSync is intentionally on-demand. Remove any legacy auto-start task.
 cmd.exe /c "schtasks /Delete /TN \"DifSync Device Agent\" /F >nul 2>&1" | Out-Null
 
@@ -122,7 +140,8 @@ if (Test-Path $uninstallScript) {
   $uninstallShortcut.Save()
 }
 
-Write-Host "DifSync installed as an on-demand Windows app."
+Write-Host "[5/5] Opening client" -ForegroundColor Cyan
+Write-Host "  [OK] DifSync Remote Access is installed." -ForegroundColor Green
 Write-Host "Opening DifSync now. Closing the app takes this PC offline."
 Write-Host "Start Menu shortcut: $shortcutPath"
 
