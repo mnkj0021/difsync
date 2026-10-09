@@ -2,7 +2,8 @@ param(
   [string]$PairCode = "",
   [string]$InstallDir = "$env:LOCALAPPDATA\DifSync-Agent",
   [string]$DeviceName = $env:COMPUTERNAME,
-  [string]$Roots = ""
+  [string]$Roots = "",
+  [switch]$InstallLightingSync
 )
 
 $ErrorActionPreference = "Stop"
@@ -17,14 +18,34 @@ if (Test-Path $InstallDir) {
   Set-Location $InstallDir
 }
 
-if (Test-Path "package-lock.json") { npm ci } else { npm install }
+# The remote agent currently imports only built-in Node.js modules.
+# Do NOT install the entire monorepo here: the cloud hub and MCP packages
+# depend on native better-sqlite3, which requires compiler toolchains on Windows.
+# Neither those packages nor Python/OpenRGB are needed for remote access.
+$agentEntry = Join-Path $InstallDir "agents\device-agent\src\index.js"
+if (-not (Test-Path -LiteralPath $agentEntry)) { throw "DifSync remote agent source is missing." }
+$manifestPath = Join-Path $InstallDir "agents\device-agent\package.json"
+if (-not (Test-Path -LiteralPath $manifestPath)) { throw "DifSync device agent manifest is missing." }
+$manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+if (($manifest.dependencies -and @($manifest.dependencies.PSObject.Properties).Count -gt 0) -or
+    ($manifest.optionalDependencies -and @($manifest.optionalDependencies.PSObject.Properties).Count -gt 0)) {
+  throw "The device agent now requires dependencies. Use a targeted workspace-only install; do not install the cloud server on this PC."
+}
+Write-Host "Remote agent ready (no native compiler or npm install required)."
+
 if ($PairCode) { $env:DIFSYNC_PAIR_CODE = $PairCode }
 $env:DIFSYNC_DEVICE_NAME = $DeviceName
 if ($Roots) { $env:DIFSYNC_AGENT_ROOTS = $Roots }
 
-$syncUpdater = Join-Path $InstallDir "agents\device-agent\windows\sync-lighting-source.ps1"
-if (Test-Path $syncUpdater) {
-  & $syncUpdater -InstallDir $InstallDir
+# Remote access works on every PC. RGB/lighting source sync is explicitly
+# optional and must never run against machines without a lighting studio.
+if ($InstallLightingSync) {
+  $syncUpdater = Join-Path $InstallDir "agents\device-agent\windows\sync-lighting-source.ps1"
+  if (Test-Path -LiteralPath $syncUpdater) {
+    & $syncUpdater -InstallDir $InstallDir
+  }
+} else {
+  Write-Host "Skipping optional Lighting Studio setup on this device."
 }
 
 $state = Join-Path $env:USERPROFILE ".difsync-agent\config.json"
@@ -32,10 +53,28 @@ $state = Join-Path $env:USERPROFILE ".difsync-agent\config.json"
 if (-not (Test-Path $state)) {
   if (-not $PairCode) { throw "This PC is not paired. Generate a pairing code at https://difsync.com/devices and run the installer with -PairCode." }
 
-  $proc = Start-Process -FilePath "node" -ArgumentList "agents/device-agent/src/index.js" -WorkingDirectory $InstallDir -PassThru -WindowStyle Hidden
-  Start-Sleep -Seconds 6
-  if (-not $proc.HasExited) { Stop-Process -Id $proc.Id -Force }
-  if (-not (Test-Path $state)) { throw "Pairing failed. Check the code and network." }
+  $nodeExe = (Get-Command node -ErrorAction Stop).Source
+  $proc = Start-Process -FilePath $nodeExe -ArgumentList "agents/device-agent/src/index.js" -WorkingDirectory $InstallDir -PassThru -WindowStyle Hidden
+  try {
+    # Wait for the actual pairing response, not an arbitrary six seconds.
+    $paired = $false
+    for ($attempt = 0; $attempt -lt 35; $attempt++) {
+      Start-Sleep -Seconds 1
+      if (Test-Path -LiteralPath $state) {
+        try {
+          $saved = Get-Content -LiteralPath $state -Raw | ConvertFrom-Json
+          if ($saved.agent_id -and $saved.agent_token) { $paired = $true; break }
+        } catch { }
+      }
+      $proc.Refresh()
+      if ($proc.HasExited) { break }
+    }
+    if (-not $paired) { throw "Pairing did not complete. Check your internet connection and generate a fresh code at https://difsync.com/devices." }
+  } finally {
+    # Stop only the short-lived bootstrap process created by this installer.
+    $proc.Refresh()
+    if (-not $proc.HasExited) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }
+  }
 }
 
 # DifSync is intentionally on-demand. Remove any legacy auto-start task.
