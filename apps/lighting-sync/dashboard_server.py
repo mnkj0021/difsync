@@ -2451,6 +2451,31 @@ def api_rig_conflicts():
     if not ok: return error
     return jsonify({"ok": True, **rig.rgb_owners()})
 
+@app.route("/api/power/energy", methods=["GET"])
+def api_power_energy():
+    ok,error=require_auth()
+    if not ok:return error
+    import power_energy
+    # Live forecast watts are sampled on demand, while energy integration is
+    # owned by the single background sampler, never by UI polling.
+    state=rig.telemetry()
+    return jsonify({"ok":True,"energy":power_energy.report(wall_w=state.get("estimated_wall_w"))})
+
+@app.route("/api/power/tariff", methods=["GET","POST"])
+def api_power_tariff():
+    ok,error=require_auth()
+    if not ok:return error
+    import power_energy
+    try:
+        if request.method=="POST":
+            payload=request.get_json(silent=True)
+            rate=power_energy.update_tariff(payload)
+        else:rate=power_energy.tariff()
+        return jsonify({"ok":True,"tariff":rate,
+          "notice":"Costs are modelled PC-only electricity costs, not measured household billing."})
+    except (ValueError,TypeError) as exc:
+        return jsonify({"ok":False,"error":str(exc)}),400
+
 @app.route("/api/power/profile",methods=["GET","POST"])
 def api_power_profile():
     ok,error=require_auth()
@@ -2710,6 +2735,8 @@ def api_rig_topology():
     return jsonify({"ok":True,"segments":rows,"channel_mapping":rig.profile_load().get("channel_mapping") or {}})
 
 if __name__ == "__main__":
+    import power_energy
+    power_energy.start(rig.telemetry)
     print(f"[Dashboard] http://{APP_HOST}:{APP_PORT} (PC RGB backend: {PC_RGB_BACKEND_ACTIVE})")
     app.run(host=APP_HOST, port=APP_PORT, debug=False)
 

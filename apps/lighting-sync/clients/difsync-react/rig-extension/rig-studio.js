@@ -901,7 +901,8 @@ function updateTelemetry(t={}){
  ];
  el("rig-telemetry").innerHTML='<div class="rig-data rig-power-grid">'+
    cells.map(([name,value])=>'<div><small>'+safe(name)+'</small><b>'+safe(value)+'</b></div>').join("")+
-   '</div><div class="rig-power-legal">Estimated wall power is modelled, not metered. Excludes monitor and UPS losses.</div>'+
+   '</div><div id="rig-energy-summary" class="rig-energy-summary">Tracking energy and PKR costs…</div>'+
+   '<div class="rig-power-legal">Estimated wall power is modelled, not metered. Excludes monitor and UPS losses.</div>'+
    (!measured?'<button class="rig-btn ghost rig-enable-cpu" id="rig-enable-cpu" type="button">Enable CPU sensor</button>':'');
  el("rig-enable-cpu")&&(el("rig-enable-cpu").onclick=requestCpuSensor);
  el("rig-live-info").textContent=(rig.pc_devices||[]).length+" PC lighting interfaces · "+
@@ -918,7 +919,8 @@ function ensurePowerCard(){
     '<div class="difsync-power-foot"><p id="difsync-power-note">The total is estimated, not measured at the wall.</p>'+
     '<div class="difsync-power-actions"><button class="difsync-power-configure" id="difsync-configure-power" type="button">Adjust hardware</button>'+
     '<button class="difsync-power-enable" id="difsync-enable-cpu" type="button">Enable CPU sensor</button></div></div>'+
-    '<div id="difsync-power-config" class="difsync-power-config" hidden></div>';
+    '<div id="difsync-power-config" class="difsync-power-config" hidden></div>'+
+    '<div id="difsync-energy-panel" class="difsync-energy-panel"><span>ENERGY & ELECTRICITY</span><p>Loading recorded usage and PKR costs…</p></div>';
  const grid=overview.querySelector(".overview-hero-row");
  if(grid)grid.insertAdjacentElement("afterend",wrap);else overview.prepend(wrap);
  document.getElementById("difsync-enable-cpu").onclick=requestCpuSensor;
@@ -1018,12 +1020,130 @@ async function resetPowerCalibration(){
   pollPowerCard();
  }catch(e){powerSettingsMessage("Cannot reset: "+e.message,true)}
 }
+let lastEnergyReport=null;
+let energySettingsOpen=false;
+function energyKwh(x){
+ if(x==null||!Number.isFinite(Number(x)))return "—";
+ return Number(x).toFixed(Number(x)<1?3:2)+" kWh";
+}
+function energyPkr(x){
+ if(x==null||!Number.isFinite(Number(x)))return "—";
+ return "Rs "+Number(x).toLocaleString("en-PK",{minimumFractionDigits:2,maximumFractionDigits:2});
+}
+function energyShortHours(x){
+ if(x==null||!Number.isFinite(Number(x)))return "—";
+ return Number(x).toFixed(1)+"h";
+}
+function energyTile(name,figure,detail){
+ return '<div class="difsync-energy-tile"><span>'+safe(name)+'</span><strong>'+safe(figure)+'</strong><small>'+safe(detail)+'</small></div>';
+}
+function energySettingsMarkup(tariff){
+ const fields=[
+  ["rate_pkr_kwh","Rate (PKR / kWh)",.01,500,.5],
+  ["tax_percent","Additional tax (%)",0,100,.5],
+  ["expected_hours_per_day","Future PC hours / day",0,24,.5]
+ ];
+ return '<div class="difsync-energy-settings-grid">'+fields.map(([key,label,min,max,step])=>
+   '<label><span>'+safe(label)+'</span><input type="number" data-energy-setting="'+key+'" min="'+min+
+   '" max="'+max+'" step="'+step+'" value="'+safe(tariff[key]??"")+'"></label>').join("")+
+   '</div><div class="difsync-energy-settings-controls">'+
+   '<button type="button" id="difsync-energy-save">Save electricity settings</button>'+
+   '<button type="button" id="difsync-energy-cancel">Close</button></div>'+
+   '<p id="difsync-energy-save-status" role="status"></p>';
+}
+function renderEnergyCard(e){
+ lastEnergyReport=e;
+ const panel=document.getElementById("difsync-energy-panel");
+ if(!panel)return;
+ // Do not steal keyboard focus while a tariff value is being edited.
+ if(energySettingsOpen && panel.contains(document.activeElement) &&
+    document.activeElement.matches?.("[data-energy-setting]")) return;
+ const t=e.tariff||{};
+ const detailsOpen=energySettingsOpen;
+ const rate=Number(t.rate_pkr_kwh||0).toFixed(2);
+ const entries=Array.isArray(e.history)?e.history:[];
+ const top=entries.slice(-10);
+ const archive=Array.isArray(e.monthly_history)?e.monthly_history:[];
+ const archiveRows=archive.slice(0,12).map(x=>
+   '<div class="difsync-estimate-row"><span>'+safe(x.month)+'</span><span>'+safe(energyKwh(x.kwh))+
+   '</span><strong>'+safe(energyPkr(x.pkr))+'</strong></div>').join("");
+ const max=Math.max(.005,...top.map(x=>Number(x.kwh)||0));
+ const bars=top.map(x=>
+   '<div class="difsync-energy-bar-wrap" title="'+safe(x.date+": "+energyKwh(x.kwh)+" / "+energyPkr(x.pkr))+'">'+
+   '<div class="difsync-energy-bar" style="height:'+Math.max(4,100*(Number(x.kwh)||0)/max).toFixed(1)+'%"></div>'+
+   '<small>'+safe(String(x.date||"").slice(8))+'</small></div>').join("");
+ const settings=document.getElementById("difsync-energy-settings");
+ // Keep the settings form mounted while the user edits it.
+ const oldSettings=detailsOpen&&settings?settings:null;
+ panel.innerHTML='<div class="difsync-energy-header"><div><span>ENERGY LEDGER</span><h3>Electricity consumption</h3>'+
+   '<small>PC-only estimates · recorded samples · PKR</small></div>'+
+   '<button id="difsync-energy-adjust" type="button">'+(detailsOpen?"Hide tariff":"Electricity settings")+'</button></div>'+
+   '<div class="difsync-energy-grid">'+
+   energyTile("TODAY",energyPkr(e.today?.pkr),energyKwh(e.today?.kwh)+" · "+energyShortHours(e.today?.hours)+" recorded")+
+   energyTile("THIS MONTH",energyPkr(e.month?.pkr),energyKwh(e.month?.kwh)+" · "+energyShortHours(e.month?.hours)+" recorded")+
+   energyTile("CURRENT BOOT",energyPkr(e.uptime?.pkr),energyKwh(e.uptime?.kwh)+" · "+energyShortHours(e.uptime?.hours)+" tracked")+
+   energyTile("30-DAY PROJECTION",energyPkr(e.projected_30day_pc_pkr),energyKwh(e.projected_30day_pc_kwh)+" · "+t.expected_hours_per_day+"h/day at current W")+
+   '</div>'+
+   '<div class="difsync-energy-secondline"><div><small>CURRENT POWER COST</small><b>'+safe(energyPkr(e.cost_per_hour_pkr))+' / h</b></div>'+
+   '<div><small>EXPECTED MONTH-END PC COST</small><b>'+safe(energyPkr(e.month_forecast_pkr))+'</b></div>'+
+   '<div><small>WINDOWS UPTIME</small><b>'+safe(energyShortHours(e.pc_uptime_hours))+'</b><small>Not backfilled</small></div></div>'+
+   '<div class="difsync-energy-bottom"><div><strong>Daily energy history</strong><div class="difsync-energy-bars">'+(bars||'<span>No samples yet. Recording starts now.</span>')+'</div></div>'+
+   '<div class="difsync-energy-explainer">Tariff: '+safe("Rs "+rate+"/kWh")+
+   ' · '+safe(t.tax_percent)+"% added tax · example blended rate, not an official tariff."+
+   '<p>Only recorded intervals with working CPU/GPU sensors count. No energy is invented for sleep, app downtime or earlier uptime. Your full electricity bill also includes other appliances, slabs, fees and taxes.</p>'+
+   '</div></div>'+
+   '<div class="difsync-energy-archive"><strong>Saved months</strong><div>'+(
+      archiveRows||'<span>Historical months will appear as tracking continues.</span>')+
+   '</div></div>'+
+   '<div id="difsync-energy-settings" class="difsync-energy-settings" '+(detailsOpen?"":"hidden")+'></div>';
+ const set=document.getElementById("difsync-energy-settings");
+ if(detailsOpen){
+  if(oldSettings&&oldSettings.querySelector("[data-energy-setting]")){
+   set.replaceWith(oldSettings);oldSettings.id="difsync-energy-settings";
+  }else{set.innerHTML=energySettingsMarkup(t);wireEnergySettings();}
+ }
+ document.getElementById("difsync-energy-adjust").onclick=()=>{
+  energySettingsOpen=!energySettingsOpen;
+  renderEnergyCard(lastEnergyReport);
+ };
+}
+function wireEnergySettings(){
+ const btn=document.getElementById("difsync-energy-save");
+ const cancel=document.getElementById("difsync-energy-cancel");
+ if(btn)btn.onclick=async()=>{
+  const settings={},items=[...document.querySelectorAll("[data-energy-setting]")];
+  for(const el of items){
+   if(!el.value||!Number.isFinite(Number(el.value))){document.getElementById("difsync-energy-save-status").textContent="Enter valid values for every field.";return}
+   settings[el.dataset.energySetting]=Number(el.value);
+  }
+  btn.disabled=true;
+  try{
+   await api("/api/power/tariff",{method:"POST",body:JSON.stringify(settings)},12000);
+   const d=await api("/api/power/energy",{},12000);
+   energySettingsOpen=false;
+   renderEnergyCard(d.energy);
+  }catch(e){
+   document.getElementById("difsync-energy-save-status").textContent=e.message;
+  }finally{btn.disabled=false}
+ };
+ if(cancel)cancel.onclick=()=>{energySettingsOpen=false;renderEnergyCard(lastEnergyReport)};
+}
+async function pollEnergyCard(){
+ try{
+  const value=await api("/api/power/energy",{},14000);
+  if(value.energy){lastEnergyReport=value.energy;renderEnergyCard(value.energy)}
+ }catch(e){
+  const panel=document.getElementById("difsync-energy-panel");
+  if(panel)panel.innerHTML='<p>Energy history temporarily unavailable: '+safe(e.message)+'</p>';
+ }
+}
 async function pollPowerCard(){
  ensurePowerCard();
  if(!document.getElementById("difsync-power-card"))return;
  try{
   const result=await api("/api/rig/telemetry",{},8000);
   renderPowerCard(result.telemetry||{});
+  await pollEnergyCard();
  }catch(error){
   const text=document.getElementById("difsync-power-note");
   if(text)text.textContent="Local power sensors are not available: "+error.message;
@@ -1031,6 +1151,14 @@ async function pollPowerCard(){
 }
 async function periodic(){
  if(!shown||!rig)return;
+ try{
+  const result=await api("/api/power/energy",{},11000);
+  if(result.energy){
+   const e=result.energy,cell=el("rig-energy-summary");
+   if(cell)cell.textContent="Today: "+energyKwh(e.today?.kwh)+" / "+energyPkr(e.today?.pkr)+
+      " · This month: "+energyPkr(e.month?.pkr);
+  }
+ }catch{}
  try {const r=await api("/api/rig/telemetry",{},6000); updateTelemetry(r.telemetry); if(r.last_scene?.time !== rig.last_scene?.time) {rig.last_scene=r.last_scene;applied=r.last_scene;setPreviewColor();}}catch{}
  if(!sequenceSession)return;
  try{
