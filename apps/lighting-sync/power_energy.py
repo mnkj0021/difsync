@@ -358,6 +358,7 @@ def report(now=None, wall_w=None):
     buckets = {}
     old_today = _empty()
     old_month = _empty()
+    old_uptime = _empty()
     with _LOCK:
         with _db() as conn:
             rows = conn.execute("SELECT boot_id,bucket_start,local_date,seconds,kwh,low_kwh,high_kwh"
@@ -395,6 +396,8 @@ def report(now=None, wall_w=None):
                 _add(old_today,src)
             if hour.startswith(month):
                 _add(old_month,src)
+            if old_boot == boot:
+                _add(old_uptime,src)
             # Prior hourly records are explicitly unpriced so user can't
             # mistake retroactive ToU costing for real historical rates.
         try:
@@ -416,9 +419,15 @@ def report(now=None, wall_w=None):
             })
         all_days = sorted(daily,reverse=True)[:31]
         all_months = sorted(months,reverse=True)[:12]
+        today_view, month_view, uptime_view = _public(today),_public(monthly),_public(uptime)
+        for view, old in ((today_view,old_today),(month_view,old_month),(uptime_view,old_uptime)):
+            view["total_kwh"] = round(view["kwh"]+old["kwh"],6)
+            view["total_hours"] = round(view["hours"]+old["seconds"]/3600,3)
+            view["unpriced_legacy_kwh"] = round(old["kwh"],6)
+            view["cost_complete"] = old["kwh"]<=0
         return {
             "currency":"PKR","tariff":cfg,
-            "today":_public(today),"month":_public(monthly),"uptime":_public(uptime),
+            "today":today_view,"month":month_view,"uptime":uptime_view,
             "peak_today":_public(peak_tot),"offpeak_today":_public(off_tot),
             "legacy_unpriced_today":_public(old_today),"legacy_unpriced_month":_public(old_month),
             "intervals_15m":timeline,

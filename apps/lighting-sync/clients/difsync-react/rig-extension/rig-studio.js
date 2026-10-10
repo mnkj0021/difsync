@@ -1110,8 +1110,10 @@ function renderEnergyCard(e){
   '<button id="difsync-energy-adjust" type="button">'+(energySettingsOpen?"Hide":"Electricity settings")+'</button></div>'+
   '<div class="difsync-energy-tariff-status">'+safe(status)+'</div>'+
   '<div class="difsync-energy-grid">'+
-   energyTile("TODAY · RECORDED",energyPkr(e.today?.pkr),energyKwh(e.today?.kwh))+
-   energyTile("THIS MONTH · RECORDED",energyPkr(e.month?.pkr),energyKwh(e.month?.kwh))+
+   energyTile("TODAY · RECORDED",energyKwh(e.today?.total_kwh??e.today?.kwh),
+       energyPkr(e.today?.pkr)+(e.today?.cost_complete===false?" · partially priced":""))+
+   energyTile("THIS MONTH · RECORDED",energyKwh(e.month?.total_kwh??e.month?.kwh),
+       energyPkr(e.month?.pkr)+(e.month?.cost_complete===false?" · partially priced":""))+
    energyTile("CURRENT 15-MINUTE BLOCK",energyKwh(current?.kwh),current?.avg_w!=null?current.avg_w+" W interval avg · "+energyPkr(current?.pkr):"No valid samples yet")+
    energyTile("CURRENT RATE", "Rs "+Number(e.current_rate_pkr_kwh||0).toFixed(2)+"/kWh",
       safe(e.current_band==="peak"?"Peak":e.current_band==="offpeak"?"Off-peak":"Single rate"))+
@@ -1119,7 +1121,7 @@ function renderEnergyCard(e){
   '<div class="difsync-energy-secondline">'+
    '<div><small>PEAK TODAY</small><b>'+safe(energyKwh(e.peak_today?.kwh))+'</b><small>'+safe(energyPkr(e.peak_today?.pkr))+'</small></div>'+
    '<div><small>OFF-PEAK / SINGLE-RATE TODAY</small><b>'+safe(energyKwh(e.offpeak_today?.kwh))+'</b><small>'+safe(energyPkr(e.offpeak_today?.pkr))+'</small></div>'+
-   '<div><small>TRACKED THIS BOOT</small><b>'+safe(energyKwh(e.uptime?.kwh))+'</b><small>Actual monitored intervals, not uptime extrapolation</small></div>'+
+   '<div><small>TRACKED THIS BOOT</small><b>'+safe(energyKwh(e.uptime?.total_kwh??e.uptime?.kwh))+'</b><small>Actual monitored intervals, not uptime extrapolation</small></div>'+
    '</div>'+
   '<div class="difsync-energy-15m-head"><div><strong>Power use by 15-minute interval</strong>'+
   '<small>Bars are average watts for recorded seconds; unobserved slots remain blank.</small></div>'+

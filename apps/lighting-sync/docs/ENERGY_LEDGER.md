@@ -32,6 +32,12 @@ boot energy, last 96 fifteen-minute intervals with watts/kWh/band/rate/PKR,
 peak/off-peak totals, legacy-hourly totals and 12 months of history.
 `GET/POST /api/power/tariff` reads/updates the profile.
 
+
+Earlier hourly-era readings are retained and added to today's/month's
+**total recorded kWh**, but their TOU split and cost remain explicitly
+**unpriced**. The UI labels PKR amounts as partially priced where this
+legacy history exists. No 15-minute history is manufactured from hourly data.
+
 ## Pakistan electricity rates
 
 IESCO's official tariff guide
