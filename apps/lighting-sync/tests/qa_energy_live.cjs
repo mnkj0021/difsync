@@ -1,8 +1,8 @@
 const {spawn,execFileSync}=require("node:child_process");
 const WebSocket=require("G:/DifSync/services/sync-hub/node_modules/ws");
 const fs=require("node:fs");
-const profile="G:/DifSync/tests/.energy-ledger-qa";
-const port=9348;
+const profile="G:/DifSync/tests/.energy-15min-qa";
+const port=9353;
 const chrome=spawn("C:/Program Files/Google/Chrome/Application/chrome.exe",[
  "--headless=new","--remote-debugging-port="+port,"--remote-allow-origins=*",
  "--user-data-dir="+profile,"--no-first-run","--disable-background-networking",
@@ -54,17 +54,22 @@ async function test(){
  const error=await ev('document.getElementById("difsync-power-settings-status")?.textContent');
  console.log("INVALID_CALIBRATION_REJECTED",JSON.stringify(error));
  if(!error.includes("actual measured"))throw Error("Invalid wall measurement not rejected"); await sleep(750);
- const energy=await ev('({panel:!!document.getElementById("difsync-energy-panel"),month:document.getElementById("difsync-energy-panel")?.textContent.includes("THIS MONTH"),boot:document.getElementById("difsync-energy-panel")?.textContent.includes("CURRENT BOOT"),projection:document.getElementById("difsync-energy-panel")?.textContent.includes("30-DAY PROJECTION"),archive:document.getElementById("difsync-energy-panel")?.textContent.includes("Saved months"),currency:document.getElementById("difsync-energy-panel")?.textContent.includes("Rs ")})');
- console.log("ENERGY_OVERVIEW",JSON.stringify(energy));
- if(!energy.panel||!energy.month||!energy.boot||!energy.projection||!energy.archive||!energy.currency)throw Error("Energy ledger missing on overview");
+ const energy=await ev('({panel:!!document.getElementById("difsync-energy-panel"),month:document.getElementById("difsync-energy-panel")?.textContent.includes("THIS MONTH"),today:document.getElementById("difsync-energy-panel")?.textContent.includes("TODAY"),noProjection:!document.getElementById("difsync-energy-panel")?.textContent.includes("30-DAY PROJECTION"),intervals:document.querySelectorAll(".difsync-energy-15bar").length,columns:document.querySelectorAll(".difsync-energy-table th").length,source:document.getElementById("difsync-energy-panel")?.textContent.includes("IESCO tariff source"),unverified:document.getElementById("difsync-energy-panel")?.textContent.includes("Meter category unconfirmed")})');
+ console.log("ENERGY_15M_UI",JSON.stringify(energy));
+ if(!energy.panel||!energy.today||!energy.month||!energy.noProjection||energy.intervals!==16||energy.columns!==7||!energy.source||!energy.unverified)throw Error("15-minute UI or tariff status missing");
+ await ev('document.getElementById("difsync-energy-expand").click()');
+ await sleep(150);
+ const expanded=await ev('document.querySelectorAll(".difsync-energy-15bar").length');
+ console.log("ENERGY_EXPANDED_SLOTS",expanded);
+ if(expanded!==96)throw Error("24-hour 15-minute view missing");
  await ev('document.getElementById("difsync-energy-adjust").click()');
- await sleep(250);
- const tariffSettings=await ev('({open:!document.getElementById("difsync-energy-settings")?.hidden,fields:[...document.querySelectorAll("[data-energy-setting]")].map(x=>[x.dataset.energySetting,x.value]),save:!!document.getElementById("difsync-energy-save")})');
- console.log("ENERGY_TARIFF_FORM",JSON.stringify(tariffSettings));
- if(!tariffSettings.open||tariffSettings.fields.length!==3||!tariffSettings.save)throw Error("Energy tariff editor unavailable");
- const verify=await ev('(async()=>{const p=await fetch("http://127.0.0.1:8080/api/power/energy");const v=await p.json();return {ok:v.ok,running:v.energy?.tracking_running,cost:v.energy?.cost_per_hour_pkr,monthHistory:Array.isArray(v.energy?.monthly_history)}})()');
- console.log("ENERGY_API",JSON.stringify(verify));
- if(!verify.ok||!verify.running||!verify.monthHistory)throw Error("Live energy engine unavailable");
+ await sleep(160);
+ const editor=await ev('({open:!document.getElementById("difsync-energy-settings")?.hidden,mode:document.getElementById("difsync-energy-mode")?.value,rateFields:[...document.querySelectorAll("[data-energy-setting]")].map(x=>x.dataset.energySetting),confirm:!!document.getElementById("difsync-energy-confirm"),auto:!!document.getElementById("difsync-energy-autorefresh"),oldHours:document.body.textContent.includes("Future PC hours / day")})');
+ console.log("TARIFF_EDITOR",JSON.stringify(editor));
+ if(!editor.open||editor.mode!=="iesco_tou"||editor.rateFields.length!==3||!editor.confirm||!editor.auto||editor.oldHours)throw Error("Peak/offpeak tariff configuration missing");
+ const verify=await ev('(async()=>{const r=await fetch("http://127.0.0.1:8080/api/power/energy");const v=await r.json();return {ok:v.ok,running:v.energy?.tracking_running,sampleSec:v.energy?.sample_interval_seconds,bucketMinutes:v.energy?.bucket_minutes,hasSlots:v.energy?.intervals_15m?.length,unverified:v.energy?.tariff?.confirmed===false,oldProjection:!!v.energy?.projected_30day_pc_pkr}})()');
+ console.log("ENERGY_15M_API",JSON.stringify(verify));
+ if(!verify.ok||!verify.running||verify.sampleSec!==5||verify.bucketMinutes!==15||verify.hasSlots!==96||!verify.unverified||verify.oldProjection)throw Error("5-second energy API unavailable");
  console.log("EXCEPTIONS",JSON.stringify(exceptions));
  if(exceptions.length)throw Error("Browser JS exceptions");
  console.log("NATIVE_UI_QA_PASS");

@@ -1,38 +1,71 @@
-# DifSync PC Energy Ledger
+# Fifteen-minute electricity accounting (PC-only)
 
-The local Lighting Studio backend runs `power_energy.py` in one daemon thread.
-It samples `rig_studio.telemetry()` every 20 seconds while the native
-`desktop_runtime.py` backend is running. Read-only API:
-`GET /api/power/energy`. Read/save user electricity assumptions:
-`GET /api/power/tariff` and `POST /api/power/tariff`.
+The local DifSync Studio on NADIR-PC samples sensor-informed *estimated* AC
+power about every **5 seconds** and integrates variable watts using short
+trapezoids. If an interval crosses a 15-minute or tariff boundary, watts
+are linearly interpolated at the boundary. Historical data is aggregated into
+fifteen-minute records; per-interval actual covered seconds, energy
+kWh and estimated power range persist in SQLite.
 
-The private, machine-specific SQLite ledger is stored at
-`G:\DifSync\var\power-energy\energy.sqlite3` in the current NADIR-PC
-installation, with tariff settings in the same directory. `var/` is
-ignored by Git. The hourly table stores each OS boot separately, with
-local-calendar hours, tracked elapsed seconds, and trapezoidal integration
-of estimated wall watts (mid/low/high). The ledger is durable across app
-restarts, Windows reboots and month changes. It never backfills from
-Windows uptime. It deliberately skips missing CPU/GPU readings, service
-downtime, large time gaps, sleep and wall-clock discontinuities.
+It does NOT have a physical mains electricity meter. CPU RAPL watts and
+NVIDIA GPU board watts are measured; whole-PC AC input, PSU losses, SSDs,
+fans, USB, lighting and RAM load are estimated. A calibrated external wall
+meter is necessary for accurate actual AC consumption.
 
-Overview > Live Power displays today, month, current boot, 30-day forecast,
-actual tracked hours and a rolling 12-month history. The 3D Rig Studio
-shows a compact energy summary. Tariff values can be updated in
-Overview > Electricity settings. Defaults of Rs 50/kWh and 8 hours/day
-are **illustrative only**; set the user's actual effective electricity
-rate for a useful PKR estimate. Tax percentage can optionally augment
-the blended rate. Cost history is recomputed at the currently selected
-rate; changing the rate will revalue old kWh, not overwrite it.
+## Storage and runtime
 
-The 30-day forecast holds current estimated PC power constant for the
-user-selected daily hours. It is not a projection of a complete utility
-bill. Electricity slabs, full-home appliances, monitors, and UPS losses
-are not metered. `tests/test_power_energy.py` covers integration,
-database persistence, missed sensor values, long gaps, reboot separation,
-and PKR settings. `tests/qa_energy_live.cjs` is a single-browser
-NADIR-PC integration check; do not run it unattended or in parallel with
-other graphical QA sessions.
+Database: `var/power-energy/energy.sqlite3` within the installed Studio
+(`G:\DifSync\var\power-energy` currently).
+Tariff settings: `var/power-energy/tariff.json`.
+Published IESCO rate cache: `var/power-energy/official-iesco.json`.
+All three are machine-local, not published in Git. Historical `hourly`
+records remain preserved but **are NOT subdivided** or falsely assigned
+time-of-use charges. They appear under `legacy_unpriced_*` fields.
 
-User-visible dashboard assets are copied by
-`clients/difsync-react/rig-extension/install.cjs` into the Vite build.
+A daemon thread begins sampling when `dashboard_server.py` launches,
+independent of UI polling. It skips missing sensor readings, long gaps,
+sleep/resume, reboots, and clock jumps. Stopping the background backend
+stops tracking; Windows uptime is NOT an accurate wattage log.
+
+`GET /api/power/energy` returns today's kWh/PKR, monthly summary, current
+boot energy, last 96 fifteen-minute intervals with watts/kWh/band/rate/PKR,
+peak/off-peak totals, legacy-hourly totals and 12 months of history.
+`GET/POST /api/power/tariff` reads/updates the profile.
+
+## Pakistan electricity rates
+
+IESCO's official tariff guide
+`https://www.iesco.com.pk/tariff-guide`
+lists February 2026 residential A-1 TOU **PKR 46.85/kWh peak** and
+**PKR 34.53/kWh off-peak** as published BASE rates. A separate network
+thread checks the official residential A-1 table once daily via HTTPS,
+stores the last successful response and never blocks the energy sampler.
+A failed fetch preserves the last verified cache. This is **not a feed of
+all utility charges**. Quarterly/fuel adjustments, taxes, fixed fees,
+solar net billing and meter-specific charges cannot be inferred.
+
+Time windows from the standard TOU schedule:
+Dec-Feb 17:00–21:00; Mar-May 18:00–22:00;
+Jun-Aug 19:00–23:00; Sep-Nov 18:00–22:00.
+Use the PC's local timezone, verified as Pakistan Standard Time on NADIR-PC.
+
+**Important:** TOU applies only when the electricity account has a TOU
+tariff/meter. Other households are billed by residential slabs. Their
+actual marginal unit cost depends on whole-home consumption, and DifSync
+cannot infer it from the PC. The starting IESCO TOU choice is deliberately
+UNCONFIRMED until the user verifies the actual electricity bill.
+The UI also offers user-defined single-rate billing and custom TOU rates,
+tax percentage and an option to disable automatic published-rate updates.
+
+Cost amounts shown in the UI are **estimates using the currently selected
+tariff**, recalculated on profile changes even for earlier recorded kWh.
+This is an electricity-contribution tracker, not a complete utility invoice.
+No fixed operating-hours projection remains.
+
+## Validation
+- `tests/test_power_energy.py`: 5-second integration, tariff boundary,
+  seasonal TOU, reboot/gap handling, SQLite persistence and no fake forecast.
+- `tests/test_tariff_refresh.py`: parse residential A-1 only, daily
+  caching, category confirmation and manual override.
+- `tests/qa_energy_live.cjs`: headless desktop browser verification,
+  96 bars, rate editor, source warning and no frontend exceptions.

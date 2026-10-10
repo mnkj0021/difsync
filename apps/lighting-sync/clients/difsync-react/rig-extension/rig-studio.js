@@ -1022,119 +1022,163 @@ async function resetPowerCalibration(){
 }
 let lastEnergyReport=null;
 let energySettingsOpen=false;
+let energyHistoryExpanded=false;
 function energyKwh(x){
- if(x==null||!Number.isFinite(Number(x)))return "—";
- return Number(x).toFixed(Number(x)<1?3:2)+" kWh";
+ if(x==null||!Number.isFinite(Number(x)))return "Unavailable";
+ return Number(x).toFixed(Number(x)<.1?5:3)+" kWh";
 }
 function energyPkr(x){
- if(x==null||!Number.isFinite(Number(x)))return "—";
+ if(x==null||!Number.isFinite(Number(x)))return "Unavailable";
  return "Rs "+Number(x).toLocaleString("en-PK",{minimumFractionDigits:2,maximumFractionDigits:2});
 }
 function energyShortHours(x){
- if(x==null||!Number.isFinite(Number(x)))return "—";
- return Number(x).toFixed(1)+"h";
+ if(x==null||!Number.isFinite(Number(x)))return "Unavailable";
+ return Number(x).toFixed(2)+" h";
 }
 function energyTile(name,figure,detail){
  return '<div class="difsync-energy-tile"><span>'+safe(name)+'</span><strong>'+safe(figure)+'</strong><small>'+safe(detail)+'</small></div>';
 }
-function energySettingsMarkup(tariff){
- const fields=[
-  ["rate_pkr_kwh","Rate (PKR / kWh)",.01,500,.5],
-  ["tax_percent","Additional tax (%)",0,100,.5],
-  ["expected_hours_per_day","Future PC hours / day",0,24,.5]
- ];
- return '<div class="difsync-energy-settings-grid">'+fields.map(([key,label,min,max,step])=>
-   '<label><span>'+safe(label)+'</span><input type="number" data-energy-setting="'+key+'" min="'+min+
-   '" max="'+max+'" step="'+step+'" value="'+safe(tariff[key]??"")+'"></label>').join("")+
-   '</div><div class="difsync-energy-settings-controls">'+
-   '<button type="button" id="difsync-energy-save">Save electricity settings</button>'+
-   '<button type="button" id="difsync-energy-cancel">Close</button></div>'+
-   '<p id="difsync-energy-save-status" role="status"></p>';
+function energySettingsMarkup(t){
+ const confirmed=t.confirmed===true;
+ const rate=(id,label,value)=>
+   '<label><span>'+safe(label)+'</span><input type="number" min=".01" max="500" step=".01" data-energy-setting="'+id+
+   '" value="'+safe(value??"")+'"></label>';
+ return '<div class="difsync-energy-settings-grid">'+
+    '<label><span>Electricity meter tariff</span><select id="difsync-energy-mode">'+
+    '<option value="iesco_tou" '+(t.mode==="iesco_tou"?"selected":"")+'>IESCO A-1 Time of Use (peak/off-peak)</option>'+
+    '<option value="flat_manual" '+(t.mode==="flat_manual"?"selected":"")+'>Single rate / domestic slab (enter your bill rate)</option>'+
+    '</select></label>'+
+    rate("peak_rate_pkr_kwh","IESCO TOU peak PKR/kWh",t.peak_rate_pkr_kwh)+
+    rate("offpeak_rate_pkr_kwh","IESCO TOU off-peak PKR/kWh",t.offpeak_rate_pkr_kwh)+
+    rate("flat_rate_pkr_kwh","Effective single-rate PKR/kWh",t.flat_rate_pkr_kwh)+
+    '<label><span>Additional tax (%) if applicable</span><input id="difsync-energy-tax" type="number" min="0" max="100" step=".1" value="'+safe(t.tax_percent??0)+'"></label>'+
+    '</div>'+
+    '<label class="difsync-energy-confirm"><input id="difsync-energy-autorefresh" type="checkbox" '+(t.auto_refresh_official!==false?"checked":"")+'>'+
+    '<span>Automatically check IESCO published base rates daily. Turn off to keep manually adjusted ToU rates.</span></label>'+
+    '<label class="difsync-energy-confirm"><input id="difsync-energy-confirm" type="checkbox" '+(confirmed?"checked":"")+'>'+
+    '<span>I checked my electricity bill and confirmed the correct meter category and rates.</span></label>'+
+    '<p>IESCO published A-1 base rates (February 2026). Your bill can include fuel/quarterly adjustments, slab rates, fixed charges and additional taxes. Single-rate accounts do not automatically pay peak premiums.</p>'+
+    '<div class="difsync-energy-settings-controls">'+
+    '<button id="difsync-energy-save" type="button">Save tariff</button>'+
+    '<button id="difsync-energy-cancel" type="button">Close</button>'+
+    '</div><p id="difsync-energy-save-status" role="status"></p>';
 }
 function renderEnergyCard(e){
  lastEnergyReport=e;
  const panel=document.getElementById("difsync-energy-panel");
  if(!panel)return;
- // Do not steal keyboard focus while a tariff value is being edited.
- if(energySettingsOpen && panel.contains(document.activeElement) &&
-    document.activeElement.matches?.("[data-energy-setting]")) return;
- const t=e.tariff||{};
- const detailsOpen=energySettingsOpen;
- const rate=Number(t.rate_pkr_kwh||0).toFixed(2);
- const entries=Array.isArray(e.history)?e.history:[];
- const top=entries.slice(-10);
- const archive=Array.isArray(e.monthly_history)?e.monthly_history:[];
- const archiveRows=archive.slice(0,12).map(x=>
-   '<div class="difsync-estimate-row"><span>'+safe(x.month)+'</span><span>'+safe(energyKwh(x.kwh))+
-   '</span><strong>'+safe(energyPkr(x.pkr))+'</strong></div>').join("");
- const max=Math.max(.005,...top.map(x=>Number(x.kwh)||0));
- const bars=top.map(x=>
-   '<div class="difsync-energy-bar-wrap" title="'+safe(x.date+": "+energyKwh(x.kwh)+" / "+energyPkr(x.pkr))+'">'+
-   '<div class="difsync-energy-bar" style="height:'+Math.max(4,100*(Number(x.kwh)||0)/max).toFixed(1)+'%"></div>'+
-   '<small>'+safe(String(x.date||"").slice(8))+'</small></div>').join("");
- const settings=document.getElementById("difsync-energy-settings");
- // Keep the settings form mounted while the user edits it.
- const oldSettings=detailsOpen&&settings?settings:null;
- panel.innerHTML='<div class="difsync-energy-header"><div><span>ENERGY LEDGER</span><h3>Electricity consumption</h3>'+
-   '<small>PC-only estimates · recorded samples · PKR</small></div>'+
-   '<button id="difsync-energy-adjust" type="button">'+(detailsOpen?"Hide tariff":"Electricity settings")+'</button></div>'+
-   '<div class="difsync-energy-grid">'+
-   energyTile("TODAY",energyPkr(e.today?.pkr),energyKwh(e.today?.kwh)+" · "+energyShortHours(e.today?.hours)+" recorded")+
-   energyTile("THIS MONTH",energyPkr(e.month?.pkr),energyKwh(e.month?.kwh)+" · "+energyShortHours(e.month?.hours)+" recorded")+
-   energyTile("CURRENT BOOT",energyPkr(e.uptime?.pkr),energyKwh(e.uptime?.kwh)+" · "+energyShortHours(e.uptime?.hours)+" tracked")+
-   energyTile("30-DAY PROJECTION",energyPkr(e.projected_30day_pc_pkr),energyKwh(e.projected_30day_pc_kwh)+" · "+t.expected_hours_per_day+"h/day at current W")+
+ const focused=document.activeElement;
+ // Never discard partially edited tariff fields.
+ if(energySettingsOpen&&focused&&panel.contains(focused)&&
+    (focused.matches?.("input,select")||focused.id==="difsync-energy-save"))return;
+ const tariff=e.tariff||{};
+ const blocks=Array.isArray(e.intervals_15m)?e.intervals_15m:[];
+ const current=blocks.length?blocks[blocks.length-1]:null;
+ const recent=energyHistoryExpanded?blocks:blocks.slice(-16);
+ const valid=recent.filter(x=>x.coverage_seconds>0);
+ const max=Math.max(.001,...valid.map(x=>Number(x.avg_w)||0));
+ const bars=recent.map(x=>{
+  const coverage=Number(x.coverage_seconds)||0;
+  const n=coverage>0?Number(x.avg_w)||0:0;
+  const fill=coverage?Math.max(3,n/max*100):2;
+  return '<div class="difsync-energy-15bar" title="'+safe(
+   x.start+" | "+(coverage?x.avg_w+" W avg, "+energyKwh(x.kwh)+", "+energyPkr(x.pkr):"Unobserved")+
+   " | "+x.band
+  )+'"><div style="height:'+fill.toFixed(1)+'%;'+(coverage?"":"opacity:.14;")+'" class="difsync-energy-15bar-fill '+(x.band==="peak"?"peak":"")+'"></div>'+
+  '<small>'+safe(String(x.start).slice(0,5))+'</small></div>';
+ }).join("");
+ const recorded=recent.filter(x=>Number(x.coverage_seconds)>0).reverse();
+ const lines=recorded.map(x=>
+    '<tr><td>'+safe(x.start)+'</td><td>'+safe((Number(x.avg_w)||0).toFixed(0)+' W')+
+    '</td><td>'+safe(energyKwh(x.kwh))+'</td><td>'+safe(x.band==='peak'?'Peak':x.band==='offpeak'?'Off-peak':'Single')+
+    '</td><td>'+safe("Rs "+Number(x.rate).toFixed(2))+'</td><td>'+safe(energyPkr(x.pkr))+
+    '</td><td>'+safe((Number(x.coverage_seconds)/60).toFixed(1)+' min')+'</td></tr>'
+ ).join("");
+ const archived=Array.isArray(e.monthly_history)?e.monthly_history:[];
+ const archives=archived.map(x=>'<div class="difsync-estimate-row"><span>'+safe(x.month)+
+ '</span><span>'+safe(energyKwh(x.kwh))+'</span><strong>'+safe(energyPkr(x.pkr))+'</strong></div>').join("");
+ const incomplete=e.legacy_unpriced_month?.kwh>0;
+ const checked=tariff.source_checked_today===true?
+   " Official IESCO base rate was checked today.":
+   " No successful official rate check recorded today.";
+ const status=tariff.confirmed===true?
+  "Bill category confirmed by user. Base-rate estimate, not a utility bill."+checked:
+  "Meter category unconfirmed: TOU is only a preview until you check your actual bill."+checked;
+ const notes='IESCO A-1 ToU base rates · peak windows vary by season. In October, peak is 18:00–22:00 (Pakistan time). ToU requires a ToU account; ordinary domestic slabs are not hourly-priced.';
+ panel.innerHTML='<div class="difsync-energy-header"><div><span>ENERGY LEDGER · 5-SECOND SAMPLING</span>'+
+  '<h3>Electricity consumption</h3><small>Recorded PC energy, grouped every 15 minutes</small></div>'+
+  '<button id="difsync-energy-adjust" type="button">'+(energySettingsOpen?"Hide":"Electricity settings")+'</button></div>'+
+  '<div class="difsync-energy-tariff-status">'+safe(status)+'</div>'+
+  '<div class="difsync-energy-grid">'+
+   energyTile("TODAY · RECORDED",energyPkr(e.today?.pkr),energyKwh(e.today?.kwh))+
+   energyTile("THIS MONTH · RECORDED",energyPkr(e.month?.pkr),energyKwh(e.month?.kwh))+
+   energyTile("CURRENT 15-MINUTE BLOCK",energyKwh(current?.kwh),current?.avg_w!=null?current.avg_w+" W interval avg · "+energyPkr(current?.pkr):"No valid samples yet")+
+   energyTile("CURRENT RATE", "Rs "+Number(e.current_rate_pkr_kwh||0).toFixed(2)+"/kWh",
+      safe(e.current_band==="peak"?"Peak":e.current_band==="offpeak"?"Off-peak":"Single rate"))+
    '</div>'+
-   '<div class="difsync-energy-secondline"><div><small>CURRENT POWER COST</small><b>'+safe(energyPkr(e.cost_per_hour_pkr))+' / h</b></div>'+
-   '<div><small>EXPECTED MONTH-END PC COST</small><b>'+safe(energyPkr(e.month_forecast_pkr))+'</b></div>'+
-   '<div><small>WINDOWS UPTIME</small><b>'+safe(energyShortHours(e.pc_uptime_hours))+'</b><small>Not backfilled</small></div></div>'+
-   '<div class="difsync-energy-bottom"><div><strong>Daily energy history</strong><div class="difsync-energy-bars">'+(bars||'<span>No samples yet. Recording starts now.</span>')+'</div></div>'+
-   '<div class="difsync-energy-explainer">Tariff: '+safe("Rs "+rate+"/kWh")+
-   ' · '+safe(t.tax_percent)+"% added tax · example blended rate, not an official tariff."+
-   '<p>Only recorded intervals with working CPU/GPU sensors count. No energy is invented for sleep, app downtime or earlier uptime. Your full electricity bill also includes other appliances, slabs, fees and taxes.</p>'+
-   '</div></div>'+
-   '<div class="difsync-energy-archive"><strong>Saved months</strong><div>'+(
-      archiveRows||'<span>Historical months will appear as tracking continues.</span>')+
-   '</div></div>'+
-   '<div id="difsync-energy-settings" class="difsync-energy-settings" '+(detailsOpen?"":"hidden")+'></div>';
- const set=document.getElementById("difsync-energy-settings");
- if(detailsOpen){
-  if(oldSettings&&oldSettings.querySelector("[data-energy-setting]")){
-   set.replaceWith(oldSettings);oldSettings.id="difsync-energy-settings";
-  }else{set.innerHTML=energySettingsMarkup(t);wireEnergySettings();}
+  '<div class="difsync-energy-secondline">'+
+   '<div><small>PEAK TODAY</small><b>'+safe(energyKwh(e.peak_today?.kwh))+'</b><small>'+safe(energyPkr(e.peak_today?.pkr))+'</small></div>'+
+   '<div><small>OFF-PEAK / SINGLE-RATE TODAY</small><b>'+safe(energyKwh(e.offpeak_today?.kwh))+'</b><small>'+safe(energyPkr(e.offpeak_today?.pkr))+'</small></div>'+
+   '<div><small>TRACKED THIS BOOT</small><b>'+safe(energyKwh(e.uptime?.kwh))+'</b><small>Actual monitored intervals, not uptime extrapolation</small></div>'+
+   '</div>'+
+  '<div class="difsync-energy-15m-head"><div><strong>Power use by 15-minute interval</strong>'+
+  '<small>Bars are average watts for recorded seconds; unobserved slots remain blank.</small></div>'+
+  '<button type="button" id="difsync-energy-expand">'+(energyHistoryExpanded?"Last four hours":"Full 24 hours")+'</button></div>'+
+  '<div class="difsync-energy-15m-chart">'+bars+'</div>'+
+  '<div class="difsync-energy-table-wrap"><table class="difsync-energy-table"><thead><tr>'+
+    '<th>Time</th><th>Avg W</th><th>Energy</th><th>Band</th><th>PKR/kWh</th><th>Cost</th><th>Captured</th>'+
+  '</tr></thead><tbody>'+(lines||'<tr><td colspan="7">No valid samples in these intervals.</td></tr>')+'</tbody></table></div>'+
+  '<div class="difsync-energy-footnotes">'+safe(notes)+' <a href="https://www.iesco.com.pk/tariff-guide" target="_blank" rel="noopener noreferrer">IESCO tariff source</a>'+
+  '<p>Costs are from the selected tariff applied to recorded estimated energy. They exclude utility adjustments, full-house slab determination, fixed fees, your monitor, and UPS losses. Power is not metered at the mains.</p>'+
+   (incomplete?'<p>Previous tracking: '+safe(energyKwh(e.legacy_unpriced_month.kwh))+
+   ' was recorded only by hour before this upgrade and has not been assigned invented 15-minute prices.</p>':'')+
+  '</div>'+
+  '<div class="difsync-energy-archive"><strong>Saved monthly intervals</strong><div>'+(
+    archives||'<span>The archive starts when the new tracker collects readings.</span>')+
+  '</div></div>'+
+  '<div id="difsync-energy-settings" class="difsync-energy-settings" '+(energySettingsOpen?"":"hidden")+'></div>';
+ const editor=document.getElementById("difsync-energy-settings");
+ if(energySettingsOpen){
+  editor.innerHTML=energySettingsMarkup(tariff);
+  wireEnergySettings();
  }
  document.getElementById("difsync-energy-adjust").onclick=()=>{
-  energySettingsOpen=!energySettingsOpen;
-  renderEnergyCard(lastEnergyReport);
+  energySettingsOpen=!energySettingsOpen;renderEnergyCard(lastEnergyReport);
+ };
+ document.getElementById("difsync-energy-expand").onclick=()=>{
+  energyHistoryExpanded=!energyHistoryExpanded;renderEnergyCard(lastEnergyReport);
  };
 }
 function wireEnergySettings(){
- const btn=document.getElementById("difsync-energy-save");
- const cancel=document.getElementById("difsync-energy-cancel");
+ const btn=document.getElementById("difsync-energy-save"),cancel=document.getElementById("difsync-energy-cancel");
  if(btn)btn.onclick=async()=>{
-  const settings={},items=[...document.querySelectorAll("[data-energy-setting]")];
-  for(const el of items){
-   if(!el.value||!Number.isFinite(Number(el.value))){document.getElementById("difsync-energy-save-status").textContent="Enter valid values for every field.";return}
-   settings[el.dataset.energySetting]=Number(el.value);
+  const payload={mode:document.getElementById("difsync-energy-mode").value,
+    confirmed:document.getElementById("difsync-energy-confirm").checked,
+    auto_refresh_official:document.getElementById("difsync-energy-autorefresh").checked,
+    tax_percent:Number(document.getElementById("difsync-energy-tax").value)};
+  for(const input of document.querySelectorAll("[data-energy-setting]")){
+   if(!input.value){document.getElementById("difsync-energy-save-status").textContent="Enter valid electricity rates.";return}
+   payload[input.dataset.energySetting]=Number(input.value);
   }
   btn.disabled=true;
   try{
-   await api("/api/power/tariff",{method:"POST",body:JSON.stringify(settings)},12000);
-   const d=await api("/api/power/energy",{},12000);
+   await api("/api/power/tariff",{method:"POST",body:JSON.stringify(payload)},12000);
+   const data=await api("/api/power/energy",{},14000);
    energySettingsOpen=false;
-   renderEnergyCard(d.energy);
-  }catch(e){
-   document.getElementById("difsync-energy-save-status").textContent=e.message;
+   renderEnergyCard(data.energy);
+  }catch(error){
+   document.getElementById("difsync-energy-save-status").textContent=error.message;
   }finally{btn.disabled=false}
  };
  if(cancel)cancel.onclick=()=>{energySettingsOpen=false;renderEnergyCard(lastEnergyReport)};
 }
 async function pollEnergyCard(){
  try{
-  const value=await api("/api/power/energy",{},14000);
-  if(value.energy){lastEnergyReport=value.energy;renderEnergyCard(value.energy)}
- }catch(e){
+  const result=await api("/api/power/energy",{},14000);
+  if(result.energy)renderEnergyCard(result.energy);
+ }catch(error){
   const panel=document.getElementById("difsync-energy-panel");
-  if(panel)panel.innerHTML='<p>Energy history temporarily unavailable: '+safe(e.message)+'</p>';
+  if(panel)panel.textContent="Energy history unavailable: "+error.message;
  }
 }
 async function pollPowerCard(){
