@@ -353,6 +353,10 @@ def report(now=None, wall_w=None):
     uptime = _empty()
     peak_tot = _empty()
     off_tot = _empty()
+    month_peak = _empty()
+    month_offpeak = _empty()
+    boot_peak = _empty()
+    boot_offpeak = _empty()
     daily = {}
     months = {}
     buckets = {}
@@ -381,8 +385,10 @@ def report(now=None, wall_w=None):
                 _add(buckets[key],src)
             if stamp_month == month:
                 _add(monthly,src)
+                _add((month_peak if band=="peak" else month_offpeak),src)
             if record_boot == boot:
                 _add(uptime,src)
+                _add((boot_peak if band=="peak" else boot_offpeak),src)
             if date not in daily:
                 daily[date] = _empty()
             _add(daily[date],src)
@@ -429,6 +435,8 @@ def report(now=None, wall_w=None):
             "currency":"PKR","tariff":cfg,
             "today":today_view,"month":month_view,"uptime":uptime_view,
             "peak_today":_public(peak_tot),"offpeak_today":_public(off_tot),
+            "peak_month":_public(month_peak),"offpeak_month":_public(month_offpeak),
+            "peak_uptime":_public(boot_peak),"offpeak_uptime":_public(boot_offpeak),
             "legacy_unpriced_today":_public(old_today),"legacy_unpriced_month":_public(old_month),
             "intervals_15m":timeline,
             "history":[{"date":d,**_public(daily[d])} for d in reversed(all_days)],
@@ -437,6 +445,9 @@ def report(now=None, wall_w=None):
             "current_band":band_now,"current_rate_pkr_kwh":round(rate_now,2),
             "cost_per_hour_pkr":round(watts/1000*rate_now,3) if watts is not None else None,
             "pc_uptime_hours":round(max(0,timestamp-boot_at)/3600,2) if boot_at else None,
+            "unobserved_since_boot_hours":round(max(0,(timestamp-boot_at)/3600-uptime_view["total_hours"]),3) if boot_at else None,
+            "coverage_note":"Unobserved elapsed time can include sleep, sign-out, before sensor permission, and tracker downtime. It is NOT zero electricity and is never assigned invented kWh.",
+            "timezone":"Pakistan Standard Time" if time.tzname and any("Pakistan" in x for x in time.tzname) else "PC local time",
             "last_valid_age_seconds":round(max(0,timestamp-_LAST_VALID),1) if _LAST_VALID is not None else None,
             "tracking_running":bool(_WORKER and _WORKER.is_alive()),
             "tracking_error":_LAST_ERROR,

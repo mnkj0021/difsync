@@ -75,3 +75,30 @@ No fixed operating-hours projection remains.
   caching, category confirmation and manual override.
 - `tests/qa_energy_live.cjs`: headless desktop browser verification,
   96 bars, rate editor, source warning and no frontend exceptions.
+
+## Windows sign-in continuity and missing-time accounting
+
+`energy_autostart.py enable` writes an HKCU Run entry launching
+`pythonw.exe desktop_runtime.py` in the background at Windows **user sign-in**.
+The desktop GUI may be closed independently. A named Windows kernel mutex
+prevents two simultaneous GUI/login launches from owning the lighting API.
+The source includes `energy_autostart.py status|enable|disable` for opt-in
+management. No terminals are opened, and neither CAMService nor the remote
+access agent is managed here.
+
+The ledger API reports current boot elapsed time, actually sampled hours,
+**unobserved elapsed hours**, and monthly peak and off-peak consumption and
+PKR costs separately. Unobserved elapsed time can include sleep or hibernation,
+pre-login time, CPU/GPU sensor gaps, and earlier monitoring downtime; it is
+**not** recorded as zero consumption or backfilled from uptime. The user's
+live NADIR-PC uses Pakistan Standard Time. Monthly peak/off-peak totals are
+valid only where timestamps and samples were recorded; older hourly-era
+records remain unpriced.
+
+**Limitations:** HKCU Run fires on user login, not at cold boot before login.
+The Intel RAPL CPU sensor may need a fresh Windows administrator approval after
+reboot. To cover pre-login hours, install a dedicated boot-level collector
+with explicit administrative authorization and validate sensor availability.
+Neither that setup nor software estimation can replace a rated mains energy
+meter if actual measured PC AC kWh are required. ToU charges must also be
+confirmed against the user's electricity bill.

@@ -15,6 +15,28 @@ import traceback
 
 ROOT = pathlib.Path(__file__).resolve().parent
 LOG = ROOT / "desktop_runtime.log"
+_ACTIVE_MUTEX_HANDLE = None
+
+def _only_one_instance():
+    """Cross-process guard for simultaneous Windows-login and GUI launches."""
+    global _ACTIVE_MUTEX_HANDLE
+    if sys.platform != "win32":
+        return True
+    import ctypes
+    from ctypes import wintypes
+    kernel = ctypes.WinDLL("kernel32",use_last_error=True)
+    create = kernel.CreateMutexW
+    create.argtypes = [ctypes.c_void_p, wintypes.BOOL, wintypes.LPCWSTR]
+    create.restype = wintypes.HANDLE
+    handle = create(None, False, r"Local\DifSync-Windowless-Runtime-v1")
+    if not handle:
+        raise OSError(ctypes.get_last_error(),"Could not create DifSync instance guard")
+    if ctypes.get_last_error() == 183:
+        kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+        kernel.CloseHandle(handle)
+        return False
+    _ACTIVE_MUTEX_HANDLE = handle
+    return True
 
 def _rotate_log():
     if LOG.exists() and LOG.stat().st_size > 2_000_000:
@@ -61,6 +83,9 @@ def main():
                     json.dumps({"ok":True,"has_console":console_present,
                                 "pid":os.getpid(),"executable":sys.executable}),
                     encoding="utf-8")
+                return
+            if not _only_one_instance():
+                print("[DifSync] Background engine already active; skipping duplicate launch.",flush=True)
                 return
             sys.argv=[str(ROOT/"dashboard_server.py")]
             runpy.run_path(str(ROOT/"dashboard_server.py"),run_name="__main__")

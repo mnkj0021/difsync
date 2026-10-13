@@ -1123,6 +1123,15 @@ function renderEnergyCard(e){
    '<div><small>OFF-PEAK / SINGLE-RATE TODAY</small><b>'+safe(energyKwh(e.offpeak_today?.kwh))+'</b><small>'+safe(energyPkr(e.offpeak_today?.pkr))+'</small></div>'+
    '<div><small>TRACKED THIS BOOT</small><b>'+safe(energyKwh(e.uptime?.total_kwh??e.uptime?.kwh))+'</b><small>Actual monitored intervals, not uptime extrapolation</small></div>'+
    '</div>'+
+  '<div class="difsync-energy-secondline">'+
+   '<div><small>PEAK THIS MONTH</small><b>'+safe(energyKwh(e.peak_month?.kwh))+'</b><small>'+safe(energyPkr(e.peak_month?.pkr))+'</small></div>'+
+   '<div><small>OFF-PEAK THIS MONTH</small><b>'+safe(energyKwh(e.offpeak_month?.kwh))+'</b><small>'+safe(energyPkr(e.offpeak_month?.pkr))+'</small></div>'+
+   '<div><small>UNOBSERVED SINCE BOOT</small><b>'+safe(energyShortHours(e.unobserved_since_boot_hours))+'</b><small>Includes sleep, before sign-in and sensor gaps; not zero usage</small></div>'+
+   '</div>'+
+  '<div class="difsync-energy-startup">'+
+   (e.startup?.enabled?"Background collection enabled at Windows sign-in.":"Background auto-start not enabled.")+
+   ' Real power tracking requires live CPU and GPU sensor readings. Uptime alone cannot calculate missed electricity.'+
+  '</div>'+
   '<div class="difsync-energy-15m-head"><div><strong>Power use by 15-minute interval</strong>'+
   '<small>Bars are average watts for recorded seconds; unobserved slots remain blank.</small></div>'+
   '<button type="button" id="difsync-energy-expand">'+(energyHistoryExpanded?"Last four hours":"Full 24 hours")+'</button></div>'+

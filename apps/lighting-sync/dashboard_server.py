@@ -2459,7 +2459,14 @@ def api_power_energy():
     # Live forecast watts are sampled on demand, while energy integration is
     # owned by the single background sampler, never by UI polling.
     state=rig.telemetry()
-    return jsonify({"ok":True,"energy":power_energy.report(wall_w=state.get("estimated_wall_w"))})
+    energy=power_energy.report(wall_w=state.get("estimated_wall_w"))
+    try:
+        import energy_autostart
+        energy["startup"]={"enabled":energy_autostart.status()["enabled"],
+                           "scope":"Windows user sign-in, not before login"}
+    except (ImportError,OSError,ValueError):
+        energy["startup"]={"enabled":False,"scope":"Unavailable"}
+    return jsonify({"ok":True,"energy":energy})
 
 @app.route("/api/power/tariff", methods=["GET","POST"])
 def api_power_tariff():

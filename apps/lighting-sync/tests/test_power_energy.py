@@ -24,6 +24,10 @@ try:
     expected=(750*5+800*5)/3600000
     assert abs(r["today"]["kwh"]-expected)<1e-6,r
     assert r["month"]["kwh"]==r["today"]["kwh"]
+    assert r["peak_month"]["kwh"]>0
+    assert r["offpeak_month"]["kwh"]>0
+    assert math.isclose(r["peak_month"]["kwh"]+r["offpeak_month"]["kwh"],r["month"]["kwh"],abs_tol=0.000002)
+    assert r["unobserved_since_boot_hours"] >= 0
     assert r["today"]["total_kwh"]==r["today"]["kwh"]
     assert r["today"]["pkr"]>=0 and "projected_30day_pc_pkr" not in r
     assert r["sample_interval_seconds"]==5 and r["bucket_minutes"]==15
