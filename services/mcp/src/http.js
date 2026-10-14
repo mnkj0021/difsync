@@ -8,6 +8,7 @@ import Database from "better-sqlite3";
 import { createMcpHandler, McpServer } from "@modelcontextprotocol/server";
 import { toNodeHandler } from "@modelcontextprotocol/node";
 import * as z from "zod/v4";
+import { coverAction } from "./westbridge-covers.js";
 
 const HOST = String(process.env.DIFSYNC_MCP_HTTP_HOST || "127.0.0.1");
 const PORT = Number(process.env.DIFSYNC_MCP_HTTP_PORT || 8891);
@@ -650,6 +651,84 @@ function createServer(ctx) {
   }, async ({ limit }) => {
     requireScope(ctx, "difsync.read");
     return result({ commands: q.history.all(ctx.user_id, Math.max(1, Math.min(100, Number(limit) || 25))) });
+  });
+
+
+  // Westbridge covers: authenticated, fixed-destination, narrowly scoped API actions.
+  // These are not aliases for run_command or remote shell operations.
+  server.registerTool("westbridge_cover_list", {
+    title: "List Westbridge cover jobs",
+    description: "Read eligible published articles waiting for ChatGPT-only covers. Never claims or modifies jobs.",
+    inputSchema: z.object({}),
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    ...authDescriptor(["difsync.read"])
+  }, async () => {
+    requireScope(ctx, "difsync.read");
+    const value = await coverAction("list");
+    return result(value);
+  });
+
+  server.registerTool("westbridge_cover_claim", {
+    title: "Claim Westbridge cover job",
+    description: "Claim one pending article by UUID using Westbridge's one-hour, single-worker lease. Returns article context and an opaque claim token. A claim modifies only its job status.",
+    inputSchema: z.object({ jobId: z.string().uuid() }),
+    annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+    ...authDescriptor(["difsync.write"])
+  }, async ({ jobId }) => {
+    requireScope(ctx, "difsync.write");
+    const value = await coverAction("claim", { jobId });
+    audit(ctx, "westbridge.cover.claim", "cover", jobId, { ok: true });
+    return result(value);
+  });
+
+  server.registerTool("westbridge_cover_reject", {
+    title: "Reject unfit ChatGPT cover",
+    description: "Record one real rejected generation with a concrete editorial reason. At five rejections marks only that article's cover job failed, leaving the article published without a cover.",
+    inputSchema: z.object({
+      jobId: z.string().uuid(),
+      claimToken: z.string().min(30).max(100),
+      reason: z.string().min(25).max(600),
+      generationId: z.string().max(128).optional()
+    }),
+    annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+    ...authDescriptor(["difsync.write"])
+  }, async ({ jobId, claimToken, reason, generationId }) => {
+    requireScope(ctx, "difsync.write");
+    const value = await coverAction("reject", { jobId, claimToken, reason, generationId });
+    audit(ctx, "westbridge.cover.reject", "cover", jobId, { attempts: value.rejectedGenerations, failed: value.status === "failed" });
+    return result(value);
+  });
+
+  server.registerTool("westbridge_cover_complete", {
+    title: "Publish reviewed Westbridge ChatGPT cover",
+    description: "Publish one original, genuinely ChatGPT-generated editorial cover for a claimed article. Requires SHA-256-matched WebP/PNG/JPEG image bytes, a valid lease and complete article-specific five-point quality review. No image generation or fallback service is used by this action.",
+    inputSchema: z.object({
+      jobId: z.string().uuid(),
+      claimToken: z.string().min(30).max(100),
+      imageBase64: z.string().min(100000).max(16 * 1024 * 1024),
+      review: z.object({
+        source: z.literal("chatgpt-image-generator"),
+        decision: z.literal("approved"),
+        jobId: z.string().uuid(),
+        articleId: z.string().uuid(),
+        imageSha256: z.string().regex(/^[a-f0-9]{64}$/i),
+        attemptNumber: z.number().int().min(1).max(5),
+        confidence: z.number().min(0.9).max(1),
+        reason: z.string().min(40).max(600),
+        subjectMatch: z.literal(true),
+        noFabrication: z.literal(true),
+        goodComposition: z.literal(true),
+        noTextOrWatermark: z.literal(true),
+        notGeneric: z.literal(true)
+      })
+    }),
+    annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
+    ...authDescriptor(["difsync.write"])
+  }, async ({ jobId, claimToken, imageBase64, review }) => {
+    requireScope(ctx, "difsync.write");
+    const value = await coverAction("complete", { jobId, claimToken, imageBase64, review });
+    audit(ctx, "westbridge.cover.complete", "cover", jobId, { ok: true, status: value.status });
+    return result(value);
   });
 
   return server;
