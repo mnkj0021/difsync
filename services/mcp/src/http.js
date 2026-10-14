@@ -738,7 +738,7 @@ function createServer(ctx) {
     description: "After genuine ChatGPT image generation and article-specific review, store approved 1022x520 WebP on Oracle and atomically attach its permanent URL to the already-published Westbridge article. No claim before generation and no general SQL or remote shell permissions.",
     inputSchema: z.object({
       jobId: z.string().uuid(), articleId: z.string().uuid(),
-      imageBase64: z.string().min(100000).max(16 * 1024 * 1024),
+      imageBase64: z.string().min(22000).max(16 * 1024 * 1024),
       review: z.object({
       source: z.literal("chatgpt-image-generator"),
       decision: z.literal("approved"),

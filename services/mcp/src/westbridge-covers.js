@@ -44,8 +44,20 @@ export async function coverAction(action, payload, options = {}) {
     redirect: "error",
     signal: AbortSignal.timeout(action === "complete" ? 60000 : 15000)
   });
-  // Never include upstream response headers, credentials or HTML in errors.
-  if (!response.ok) throw new Error("Westbridge cover " + action + " HTTP " + response.status);
+  // Westbridge returns a fixed, non-secret JSON error explaining why an otherwise
+  // acceptable cover could not attach (conflict, image format, lease, etc.).
+  // Only expose short, plain-text messages, NEVER raw HTML, headers or tokens.
+  if (!response.ok) {
+    let explanation = "";
+    try {
+      const err = await response.json();
+      if (typeof err?.error === "string" &&
+          err.error.length <= 160 && /^[a-zA-Z0-9 ,.'()/-]+$/.test(err.error)) {
+        explanation = ": " + err.error;
+      }
+    } catch {}
+    throw new Error("Westbridge cover " + action + " HTTP " + response.status + explanation);
+  }
   const result = await response.json();
   if (!result || result.ok !== true) throw new Error("Westbridge cover action returned invalid result");
   return result;

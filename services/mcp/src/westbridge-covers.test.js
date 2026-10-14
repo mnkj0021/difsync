@@ -32,6 +32,20 @@ test("remote HTTP failures omit untrusted response bodies",async()=>{
   const fetcher=async()=>({ok:false,status:403});
   await assert.rejects(coverAction("claim",{jobId:"a"},{env,fetch:fetcher}),/HTTP 403/);
 });
+test("safe specific Westbridge refusal is exposed without secrets",async()=>{
+ const fetcher=async()=>({ok:false,status:422,json:async()=>({ok:false,error:"Oracle image failed byte/hash/dimension verification"})});
+ await assert.rejects(
+  coverAction("attach",{jobId:"a"},{env,fetch:fetcher}),
+  /HTTP 422: Oracle image failed byte\/hash\/dimension verification/
+ );
+});
+test("untrusted remote errors never leak URLs or credentials",async()=>{
+ const fetcher=async()=>({ok:false,status:403,json:async()=>({error:"secrets: token=abc@test.example"})});
+ await assert.rejects(
+  coverAction("attach",{jobId:"a"},{env,fetch:fetcher}),
+  e=> e.message==="Westbridge cover attach HTTP 403"
+ );
+});
 test("unknown operation is rejected before networking",async()=>{
   await assert.rejects(coverAction("other",{}, {env}),/Unsupported/);
 });

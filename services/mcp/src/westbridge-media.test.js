@@ -1,6 +1,6 @@
 import {test} from "node:test";
 import assert from "node:assert/strict";
-import {publicMediaUrl,publicManifest,publishReviewedCover,withCoverReviewCounts,editorialGuidanceFor} from "./westbridge-media.js";
+import {publicMediaUrl,publicManifest,publishReviewedCover,withCoverReviewCounts} from "./westbridge-media.js";
 import {ACTIONS} from "./westbridge-covers.js";
 
 const job="f00bdc3c-82db-4fe7-8c53-aa6d1715f6ba";
@@ -69,7 +69,7 @@ test("exhausted jobs are removed from eligible queue and counts stay accurate",a
  assert.equal(result.jobs.length,1);
  assert.equal(result.jobs[0].jobId,fresh.jobId);
 });
-test("fresh articles rank before costly retries without changing source order",async()=>{
+test("FIFO order is preserved even when earlier jobs have retries",async()=>{
  const ids=[
   {jobId:job,articleId:article,title:"Retry"},
   {jobId:"59eb7a2d-980b-4656-9118-ad0b4b52484e",articleId:"3adbb98a-6d76-4120-979c-a2173b1b639d",title:"Fresh"},
@@ -80,21 +80,33 @@ test("fresh articles rank before costly retries without changing source order",a
    const e=new Error("ENOENT");e.code="ENOENT";throw e;
  };
  const v=await withCoverReviewCounts({ok:true,pending:3,truncated:false,jobs:ids},{readFile:fetch});
- assert.deepEqual(v.jobs.map(x=>x.title),["Fresh","Another fresh","Retry"]);
+ assert.deepEqual(v.jobs.map(x=>x.title),["Retry"]);
+ assert.equal(v.nextJob.title,"Retry");
+ assert.equal(v.listedCount,1);
+ assert.equal(v.eligibleListed,3);
+ assert.equal(v.selectionPolicy,"fifo-oldest-eligible");
  assert.equal(v.pending,3);
 });
-test("visual guidance anchored only to current cybersecurity article, forbids fake outage",()=>{
- const a=editorialGuidanceFor({title:"Retail Sector Confronts Escalating Cyber-Attacks",excerpt:"Retailers face customer data breaches."});
- assert.equal(a.category,"retail-cybersecurity");
- assert.ok(a.scene.includes("retail"));
- assert.equal(a.anchors.length,3);
- assert.ok(a.avoid.some(x=>x.includes("Outage")));
- assert.ok(!a.scene.includes("Westminster"));
- const b=editorialGuidanceFor({title:"UK Inflation Pressures",excerpt:"Diesel price impacts households"});
- assert.equal(b.category,"economic-pressures");
- assert.ok(!b.scene.includes("cyber"));
- const c=editorialGuidanceFor({title:"Ambiguous Novel Topic",excerpt:"Unrelated"});
- assert.equal(c,null);
+test("FIFO advances to next oldest article after preceding one is completed",async()=>{
+ const jobs=[
+   {jobId:job,articleId:article,title:"First"},
+   {jobId:"59eb7a2d-980b-4656-9118-ad0b4b52484e",articleId:"3adbb98a-6d76-4120-979c-a2173b1b639d",title:"Second"}
+ ];
+ const readFile=async()=>{const e=new Error("ENOENT");e.code="ENOENT";throw e};
+ const before=await withCoverReviewCounts({ok:true,pending:2,jobs},{readFile});
+ const after=await withCoverReviewCounts({ok:true,pending:1,jobs:jobs.slice(1)},{readFile});
+ assert.equal(before.nextJob.jobId,job);
+ assert.equal(after.nextJob.title,"Second");
+ assert.equal(before.pending,2);
+ assert.equal(after.pending,1);
+});
+test("no stale shared retail subject is attached to current job",async()=>{
+ const title="European Auto Industry Faces Transition Challenges";
+ const x={jobId:job,articleId:article,title,excerpt:"Automobile manufacturing and electric vehicles"};
+ const readFile=async()=>{const e=new Error("ENOENT");e.code="ENOENT";throw e};
+ const out=await withCoverReviewCounts({ok:true,pending:1,jobs:[x]},{readFile});
+ assert.equal(out.jobs[0].title,title);
+ assert.ok(!Object.hasOwn(out.jobs[0],"visualGuidance"));
 });
 test("malformed or wrong-article rejection history fails closed",async()=>{
  const queue={ok:true,jobs:[{jobId:job,articleId:article}]};

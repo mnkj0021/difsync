@@ -14,7 +14,8 @@ const URL_ROOT = "https://difsync.com/westbridge-media/";
 const UUID = /^[\da-f]{8}-(?:[\da-f]{4}-){3}[\da-f]{12}$/i;
 const SHA = /^[\da-f]{64}$/i;
 const MAX_BYTES = 12 * 1024 * 1024;
-const MIN_BYTES = 90_000;
+// Valid, visually reviewed 1022x520 WebP photographs can compress below 90KB.
+const MIN_BYTES = 16_384;
 const REVIEW_FLAGS = ["subjectMatch","noFabrication","goodComposition","noTextOrWatermark","notGeneric"];
 
 function validateId(id) {
@@ -110,64 +111,6 @@ export async function recordRejectedCover(input) {
   return {ok:true,jobId,articleId,rejectedGenerations:data.rejections.length,remainingAttempts:5-data.rejections.length};
 }
 /**
- * Guardrail hints for non-documentary editorial illustration.
- * Pure categorization from the CURRENT job's text, never prior jobs.
- * Not evidence of an event, factual verification, or a generation prompt by itself.
- */
-export function editorialGuidanceFor(job) {
-  const current = (String(job.title || "") + " " + String(job.excerpt || "")).toLowerCase();
-  const make = (category,scene,anchors,avoid) => ({
-    category, illustrativeOnly:true, scene, anchors, avoid:[
-      ...avoid,
-      "Any specific real incident, person, failure, meeting or protest not evidenced by this article",
-      "Legible invented headlines, on-screen messages, logos, statistics or warning notices",
-      "Previous articles' locations or imagery"
-    ]
-  });
-  if (/\b(cyber.?attacks?|cyber.?security|data breach|ransomware|hacking)\b/.test(current))
-    return make("retail-cybersecurity",
-      "Calm, normally operating retail shopfloor with an unbranded checkout terminal and a security professional checking a laptop at a back-office counter. Ordinary retail environment only, no visible incident or breakdown.",
-      ["Normal retail shelves and shopping area","Plausible checkout hardware in correct position","Subtle legitimate computer security work on a laptop"],
-      ["Outage notices or unavailable payment messages","A server rack inside the supermarket aisle","Threat actors or hackers depicted as actual participants"]);
-  if (/\b(data cent(?:re|er)|ai infrastructure|data center expansion)\b/.test(current))
-    return make("data-center-industry",
-      "Grounded exterior documentary-style context image of a modern industrial data centre campus, cooling plant and grid cables, without staging a named controversy or protest.",
-      ["Industrial-scale data-centre buildings","Cooling and power infrastructure","Neutral surrounding environment"],
-      ["Invented protests or banners","Fake corporate data-center branding"]);
-  if (/\b(auto industry|automak|automotive|car factory|vehicle|volkswagen|ev transition)\b/.test(current))
-    return make("automotive-industry",
-      "Documentary-style context of a modern unbranded car assembly line, production workers at a distance and electric vehicle body shells, with no staged brand-specific announcement.",
-      ["Car body shells on an assembly line","Realistic industrial robotic tooling","Believable auto manufacturing environment"],
-      ["Fabricated branded models or logos","Claims of a specific automaker factory event"]);
-  if (/\b(inflation|borrowing costs|diesel price|fuel costs|budget warning|grocery price)\b/.test(current))
-    return make("economic-pressures",
-      "Grounded everyday UK economic context: ordinary fuel pumps and a small grocery basket or shop shelves as naturally framed editorial still life, no invented data.",
-      ["Recognizable retail or petrol environment","Everyday household economic context","Realistic contemporary UK setting"],
-      ["Readable fabricated prices or economic figures","Staged panic or distressed shoppers"]);
-  if (/\b(by-election|election|polling|party leader)\b/.test(current))
-    return make("political-election",
-      "Neutral editorial context photograph of a British polling-place entrance and blank ballots, without depicting a named candidate or implying a specific unphotographed election moment.",
-      ["A modest polling-place exterior","Neutral polling booths or blank ballot papers","British civic setting"],
-      ["Depictions of named politicians","Fake result boards, vote counts or slogans"]);
-  if (/\b(labor union|labour union|trade union|workers rights|worker rights)\b/.test(current))
-    return make("workplace-labour",
-      "Neutral context photo of an ordinary union/workplace meeting in a generic office, with nonidentifiable participants, no identifiable leader or protest.",
-      ["Ordinary working people in neutral clothing","Plausible meeting-room environment","Unbranded workplace documents"],
-      ["Fake protest signs or union logos","Specific alleged confrontation shown as fact"]);
-  if (/\b(stock market|ipo|trading|revenue|financial markets)\b/.test(current))
-    return make("financial-industry",
-      "Credible financial industry editorial still life in a modern office, with general market charts out of readable focus, rather than invented ticker figures.",
-      ["Financial office or trading setting","Generic unreadable chart forms","Plausible desks and monitors"],
-      ["Fictitious accurate-looking stock prices","Corporate logos or made-up prospectuses"]);
-  if (/\b(national security|intelligence|extremism|interference)\b/.test(current))
-    return make("national-security",
-      "A neutral exterior context image of institutional UK government buildings, without any invented covert operation, suspect, alleged crime or confrontation.",
-      ["Recognizable institutional exterior","Neutral security architecture","Naturalistic editorial lighting"],
-      ["Depiction of a real alleged crime","Invented agents, raids or secret documents"]);
-  return null;
-}
-
-/**
  * Enrich the existing read-only Westbridge queue with Oracle's authoritative
  * per-job generation rejection count. A scheduler must never infer it from
  * prior chat context or assume attempt #1 after its process restarts.
@@ -187,7 +130,7 @@ export async function withCoverReviewCounts(queue, options = {}) {
     } catch (error) {
       if (error?.code !== "ENOENT") throw error;
     }
-    return { ...job, visualGuidance: editorialGuidanceFor(job), rejectedGenerations: count, remainingAttempts: 5 - count,
+    return { ...job, rejectedGenerations: count, remainingAttempts: 5 - count,
       nextAttemptNumber: count < 5 ? count + 1 : null };
   }));
   // A spent job must not block fresh work just because Westbridge still
@@ -195,7 +138,8 @@ export async function withCoverReviewCounts(queue, options = {}) {
   // Prefer genuinely fresh articles, then lower retry counts.
   const eligible = jobs.filter(job => job.remainingAttempts > 0);
   const exhausted = jobs.length - eligible.length;
-  eligible.sort((a, b) => a.rejectedGenerations - b.rejectedGenerations);
+  // Keep Westbridge's authoritative createdAt ASC / jobId ASC FIFO order.
+  // Never re-sort on generation failures, title, image category, or retry count.
   const rawPending = typeof queue.pending === "number" ? queue.pending : jobs.length;
   return {
     ...queue,
@@ -203,7 +147,12 @@ export async function withCoverReviewCounts(queue, options = {}) {
     pending: queue.truncated ? Math.max(eligible.length, rawPending - exhausted) : eligible.length,
     eligibleListed: eligible.length,
     exhaustedListed: exhausted,
-    jobs: eligible
+    // The worker must see only ONE article at a time. Next call after
+    // completion/final rejection moves to the next oldest eligible item.
+    nextJob: eligible[0] || null,
+    listedCount: Math.min(1, eligible.length),
+    selectionPolicy: "fifo-oldest-eligible",
+    jobs: eligible.slice(0, 1)
   };
 }
 
