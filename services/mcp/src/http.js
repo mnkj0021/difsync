@@ -9,7 +9,7 @@ import { createMcpHandler, McpServer } from "@modelcontextprotocol/server";
 import { toNodeHandler } from "@modelcontextprotocol/node";
 import * as z from "zod/v4";
 import { coverAction } from "./westbridge-covers.js";
-import { publishReviewedCover, recordRejectedCover, servePublicMedia } from "./westbridge-media.js";
+import { publishReviewedCover, recordRejectedCover, servePublicMedia, withCoverReviewCounts } from "./westbridge-media.js";
 
 const HOST = String(process.env.DIFSYNC_MCP_HTTP_HOST || "127.0.0.1");
 const PORT = Number(process.env.DIFSYNC_MCP_HTTP_PORT || 8891);
@@ -665,7 +665,7 @@ function createServer(ctx) {
     ...authDescriptor(["difsync.read"])
   }, async () => {
     requireScope(ctx, "difsync.read");
-    const value = await coverAction("list");
+    const value = await withCoverReviewCounts(await coverAction("list"));
     return result(value);
   });
 

@@ -109,6 +109,32 @@ export async function recordRejectedCover(input) {
   await fsp.rename(temp,dest);
   return {ok:true,jobId,articleId,rejectedGenerations:data.rejections.length,remainingAttempts:5-data.rejections.length};
 }
+/**
+ * Enrich the existing read-only Westbridge queue with Oracle's authoritative
+ * per-job generation rejection count. A scheduler must never infer it from
+ * prior chat context or assume attempt #1 after its process restarts.
+ */
+export async function withCoverReviewCounts(queue, options = {}) {
+  const readFile = options.readFile || fsp.readFile;
+  if (!queue || queue.ok !== true || !Array.isArray(queue.jobs)) throw Error("Invalid Westbridge queue response");
+  const jobs = await Promise.all(queue.jobs.map(async job => {
+    const jobId = validateId(job.jobId);
+    const articleId = validateId(job.articleId);
+    let count = 0;
+    try {
+      const record = JSON.parse(await readFile(path.join(REJECTED, jobId + ".json"), "utf8"));
+      if (record.jobId !== jobId || record.articleId !== articleId || !Array.isArray(record.rejections) ||
+          record.rejections.length > 5) throw Error("Oracle review history invalid for " + jobId);
+      count = record.rejections.length;
+    } catch (error) {
+      if (error?.code !== "ENOENT") throw error;
+    }
+    return { ...job, rejectedGenerations: count, remainingAttempts: 5 - count,
+      nextAttemptNumber: count < 5 ? count + 1 : null };
+  }));
+  return { ...queue, jobs };
+}
+
 export async function publicManifest(){
   let names=[];
   try{names=await fsp.readdir(APPROVED)}catch(e){if(e.code!=="ENOENT")throw e}
