@@ -32,3 +32,11 @@ If a read-only queue includes an article with an image, refresh before final att
 - Only enable new scheduled worker prompt after all actions are visible and allowed. Respect run execution time and real image quota.
 
 Admin's Oracle root shows completed covers only. Draft/rejected files remain private on Oracle.
+
+## 2026-10-14: Wrong-topic generation rejection and resume guard
+
+- An unattended cover run generated an unrelated city skyline while the current queued article concerned retail-sector cyberattacks. The image was **not published**. Its actual generated candidate was inspected and a factual rejection was recorded using `westbridge_cover_reject_oracle` for job `59eb7a2d-980b-4656-9118-ad0b4b52484e`, article `3adbb98a-6d76-4120-979c-a2173b1b639d`.
+- The Oracle MCP `westbridge_cover_list` response is now enriched read-only with persistent `rejectedGenerations`, `remainingAttempts`, and `nextAttemptNumber` for each listed job. Counts come from per-job rejection archives on Oracle, not chat memory. Five archived rejections set `remainingAttempts=0` and `nextAttemptNumber=null`; the scheduler must skip exhausted jobs.
+- Before every `image_gen` invocation, the scheduled worker must establish a **new article-specific brief** based only on the current job title and excerpt. It must visually inspect the generated subject against that brief, immediately persist mismatches via `westbridge_cover_reject_oracle`, and never reuse previous article images or infer the attempt number.
+- This improves traceability, not a perfect semantic guarantee. The publishing API validates bytes, SHA, dimensions and declared review; it cannot independently establish article relevance from pixels without actual visual inspection. Do not claim unattended end-to-end accuracy until subsequent scheduled runs demonstrate relevant images and verified publication.
+- Implementation: `services/mcp/src/westbridge-media.js` (`withCoverReviewCounts`), `services/mcp/src/http.js`, regression tests `services/mcp/src/westbridge-media.test.js`. Production commit `b613378`.
