@@ -5,7 +5,7 @@
  * No shell commands, arbitrary URLs, credentials in prompts, or server-side generators.
  * A distinct 32+ byte service credential must be configured on BOTH systems.
  */
-export const ACTIONS = Object.freeze(["list", "claim", "reject", "complete"]);
+export const ACTIONS = Object.freeze(["list", "claim", "reject", "complete", "attach"]);
 const DEFAULT_ORIGIN = "https://westbridgeinsight.com";
 const MAX_COMPLETE_CHARS = 16 * 1024 * 1024;
 

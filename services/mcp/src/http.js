@@ -9,6 +9,7 @@ import { createMcpHandler, McpServer } from "@modelcontextprotocol/server";
 import { toNodeHandler } from "@modelcontextprotocol/node";
 import * as z from "zod/v4";
 import { coverAction } from "./westbridge-covers.js";
+import { publishReviewedCover, recordRejectedCover, servePublicMedia } from "./westbridge-media.js";
 
 const HOST = String(process.env.DIFSYNC_MCP_HTTP_HOST || "127.0.0.1");
 const PORT = Number(process.env.DIFSYNC_MCP_HTTP_PORT || 8891);
@@ -731,6 +732,50 @@ function createServer(ctx) {
     return result(value);
   });
 
+
+  server.registerTool("westbridge_cover_publish_oracle", {
+    title: "Publish approved Westbridge cover through isolated Oracle storage",
+    description: "After genuine ChatGPT image generation and article-specific review, store approved 1022x520 WebP on Oracle and atomically attach its permanent URL to the already-published Westbridge article. No claim before generation and no general SQL or remote shell permissions.",
+    inputSchema: z.object({
+      jobId: z.string().uuid(), articleId: z.string().uuid(),
+      imageBase64: z.string().min(100000).max(16 * 1024 * 1024),
+      review: z.object({
+      source: z.literal("chatgpt-image-generator"),
+      decision: z.literal("approved"),
+      jobId: z.string().uuid(),
+      articleId: z.string().uuid(),
+      imageSha256: z.string().regex(/^[a-f0-9]{64}$/i),
+      attemptNumber: z.number().int().min(1).max(5),
+      confidence: z.number().min(0.9).max(1),
+      reason: z.string().min(40).max(600),
+      subjectMatch: z.literal(true),
+      noFabrication: z.literal(true),
+      goodComposition: z.literal(true),
+      noTextOrWatermark: z.literal(true),
+      notGeneric: z.literal(true)
+    })
+    }),
+    annotations: {readOnlyHint:false, destructiveHint:true,openWorldHint:false},
+    ...authDescriptor(["difsync.write"])
+  }, async ({jobId,articleId,imageBase64,review}) => {
+    requireScope(ctx,"difsync.write");
+    const value=await publishReviewedCover({jobId,articleId,imageBase64,review});
+    audit(ctx,"westbridge.oracle-cover.publish","cover",jobId,{url:value.imageUrl,sha256:value.imageSha256,articleId});
+    return result(value);
+  });
+  server.registerTool("westbridge_cover_reject_oracle", {
+    title: "Record rejected unpublished ChatGPT cover candidate on Oracle",
+    description: "Record one genuine generation rejection before claim or publication in Oracle's isolated Westbridge workspace; up to five failed attempts per article.",
+    inputSchema: z.object({jobId:z.string().uuid(),articleId:z.string().uuid(),reason:z.string().min(25).max(600),generationId:z.string().max(128).optional()}),
+    annotations:{readOnlyHint:false,destructiveHint:false,openWorldHint:false},
+    ...authDescriptor(["difsync.write"])
+  }, async (input)=>{
+    requireScope(ctx,"difsync.write");
+    const value=await recordRejectedCover(input);
+    audit(ctx,"westbridge.oracle-cover.reject","cover",input.jobId,{rejections:value.rejectedGenerations});
+    return result(value);
+  });
+
   return server;
 }
 
@@ -762,6 +807,13 @@ const server = http.createServer((req, res) => {
   if (pathname === "/healthz") {
     res.writeHead(200, { "content-type": "application/json" });
     res.end(JSON.stringify({ ok: true, service: "difsync-mcp-http", version: "1.0.0", auth: "oauth2.1" }));
+    return;
+  }
+
+  if (pathname.startsWith("/westbridge-media/")) {
+    void servePublicMedia(req,res,pathname).catch(()=>{
+      if(!res.headersSent){res.writeHead(500);res.end()} else res.destroy();
+    });
     return;
   }
 
