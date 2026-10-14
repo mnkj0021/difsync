@@ -132,7 +132,21 @@ export async function withCoverReviewCounts(queue, options = {}) {
     return { ...job, rejectedGenerations: count, remainingAttempts: 5 - count,
       nextAttemptNumber: count < 5 ? count + 1 : null };
   }));
-  return { ...queue, jobs };
+  // A spent job must not block fresh work just because Westbridge still
+  // reports its article as coverless. Keep the raw count for diagnostics.
+  // Prefer genuinely fresh articles, then lower retry counts.
+  const eligible = jobs.filter(job => job.remainingAttempts > 0);
+  const exhausted = jobs.length - eligible.length;
+  eligible.sort((a, b) => a.rejectedGenerations - b.rejectedGenerations);
+  const rawPending = typeof queue.pending === "number" ? queue.pending : jobs.length;
+  return {
+    ...queue,
+    rawPending,
+    pending: queue.truncated ? Math.max(eligible.length, rawPending - exhausted) : eligible.length,
+    eligibleListed: eligible.length,
+    exhaustedListed: exhausted,
+    jobs: eligible
+  };
 }
 
 export async function publicManifest(){

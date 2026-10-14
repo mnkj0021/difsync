@@ -47,8 +47,41 @@ test("brand-new jobs begin on attempt one",async()=>{
 test("five actual prior rejections exhaust job and prevent sixth generation",async()=>{
  const queue={ok:true,jobs:[{jobId:job,articleId:article}]};
  const v=await withCoverReviewCounts(queue,{readFile:async()=>JSON.stringify({jobId:job,articleId:article,rejections:Array.from({length:5},()=>({reason:"Invalid generated image"}))})});
- assert.equal(v.jobs[0].remainingAttempts,0);
- assert.equal(v.jobs[0].nextAttemptNumber,null);
+ assert.equal(v.exhaustedListed,1);
+ assert.equal(v.eligibleListed,0);
+ assert.equal(v.jobs.length,0);
+ assert.equal(v.pending,0);
+});
+test("exhausted jobs are removed from eligible queue and counts stay accurate",async()=>{
+ const exhausted={jobId:job,articleId:article,title:"Older exhausted story"};
+ const fresh={jobId:"59eb7a2d-980b-4656-9118-ad0b4b52484e",articleId:"3adbb98a-6d76-4120-979c-a2173b1b639d",title:"New story"};
+ const queue={ok:true,pending:2,truncated:false,jobs:[exhausted,fresh]};
+ const readFile=async filename=>{
+   if(filename.endsWith(job+".json"))
+      return JSON.stringify({jobId:job,articleId:article,rejections:Array.from({length:5},()=>({reason:"Wrong article image"}))});
+   const e=new Error("ENOENT");e.code="ENOENT";throw e;
+ };
+ const result=await withCoverReviewCounts(queue,{readFile});
+ assert.equal(result.rawPending,2);
+ assert.equal(result.pending,1);
+ assert.equal(result.eligibleListed,1);
+ assert.equal(result.exhaustedListed,1);
+ assert.equal(result.jobs.length,1);
+ assert.equal(result.jobs[0].jobId,fresh.jobId);
+});
+test("fresh articles rank before costly retries without changing source order",async()=>{
+ const ids=[
+  {jobId:job,articleId:article,title:"Retry"},
+  {jobId:"59eb7a2d-980b-4656-9118-ad0b4b52484e",articleId:"3adbb98a-6d76-4120-979c-a2173b1b639d",title:"Fresh"},
+  {jobId:"7fb59533-1105-4786-ba7b-01c2fc57f383",articleId:"405ba292-6889-4dc7-a514-9c4b1c04b260",title:"Another fresh"}
+ ];
+ const fetch=async filename=>{
+   if(filename.endsWith(job+".json"))return JSON.stringify({jobId:job,articleId:article,rejections:[{reason:"Wrong image"}]});
+   const e=new Error("ENOENT");e.code="ENOENT";throw e;
+ };
+ const v=await withCoverReviewCounts({ok:true,pending:3,truncated:false,jobs:ids},{readFile:fetch});
+ assert.deepEqual(v.jobs.map(x=>x.title),["Fresh","Another fresh","Retry"]);
+ assert.equal(v.pending,3);
 });
 test("malformed or wrong-article rejection history fails closed",async()=>{
  const queue={ok:true,jobs:[{jobId:job,articleId:article}]};
