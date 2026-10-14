@@ -1,6 +1,6 @@
 import {test} from "node:test";
 import assert from "node:assert/strict";
-import {publicMediaUrl,publicManifest,publishReviewedCover,withCoverReviewCounts} from "./westbridge-media.js";
+import {publicMediaUrl,publicManifest,publishReviewedCover,withCoverReviewCounts,editorialGuidanceFor} from "./westbridge-media.js";
 import {ACTIONS} from "./westbridge-covers.js";
 
 const job="f00bdc3c-82db-4fe7-8c53-aa6d1715f6ba";
@@ -82,6 +82,19 @@ test("fresh articles rank before costly retries without changing source order",a
  const v=await withCoverReviewCounts({ok:true,pending:3,truncated:false,jobs:ids},{readFile:fetch});
  assert.deepEqual(v.jobs.map(x=>x.title),["Fresh","Another fresh","Retry"]);
  assert.equal(v.pending,3);
+});
+test("visual guidance anchored only to current cybersecurity article, forbids fake outage",()=>{
+ const a=editorialGuidanceFor({title:"Retail Sector Confronts Escalating Cyber-Attacks",excerpt:"Retailers face customer data breaches."});
+ assert.equal(a.category,"retail-cybersecurity");
+ assert.ok(a.scene.includes("retail"));
+ assert.equal(a.anchors.length,3);
+ assert.ok(a.avoid.some(x=>x.includes("Outage")));
+ assert.ok(!a.scene.includes("Westminster"));
+ const b=editorialGuidanceFor({title:"UK Inflation Pressures",excerpt:"Diesel price impacts households"});
+ assert.equal(b.category,"economic-pressures");
+ assert.ok(!b.scene.includes("cyber"));
+ const c=editorialGuidanceFor({title:"Ambiguous Novel Topic",excerpt:"Unrelated"});
+ assert.equal(c,null);
 });
 test("malformed or wrong-article rejection history fails closed",async()=>{
  const queue={ok:true,jobs:[{jobId:job,articleId:article}]};
