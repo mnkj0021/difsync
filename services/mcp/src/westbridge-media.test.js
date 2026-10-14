@@ -1,6 +1,6 @@
 import {test} from "node:test";
 import assert from "node:assert/strict";
-import {publicMediaUrl,publicManifest,publishReviewedCover,withCoverReviewCounts} from "./westbridge-media.js";
+import {publicMediaUrl,publicManifest,publishReviewedCover,withCoverReviewCounts,appendCoverRejection} from "./westbridge-media.js";
 import {ACTIONS} from "./westbridge-covers.js";
 
 const job="f00bdc3c-82db-4fe7-8c53-aa6d1715f6ba";
@@ -111,4 +111,20 @@ test("no stale shared retail subject is attached to current job",async()=>{
 test("malformed or wrong-article rejection history fails closed",async()=>{
  const queue={ok:true,jobs:[{jobId:job,articleId:article}]};
  await assert.rejects(()=>withCoverReviewCounts(queue,{readFile:async()=>JSON.stringify({jobId:job,articleId:"00000000-0000-4000-8000-000000000000",rejections:[]})}),/invalid/);
+});
+
+
+test("same generation cannot consume two persistent attempts",()=>{
+ const seed={jobId:job,articleId:article,rejections:[]};
+ const first=appendCoverRejection(seed,{jobId:job,articleId:article,generationId:"gen-unique-001",reason:"Generated output depicts an unrelated subject to the published article"});
+ assert.equal(first.rejections.length,1);
+ assert.equal(seed.rejections.length,0);
+ assert.throws(()=>appendCoverRejection(first,{jobId:job,articleId:article,generationId:"gen-unique-001",reason:"Generated output depicts a similarly unrelated subject"}),/already rejected/);
+});
+test("rejection history is strictly article-bound and five-attempt limited",()=>{
+ let h={jobId:job,articleId:article,rejections:[]};
+ for(let i=0;i<5;i++)h=appendCoverRejection(h,{jobId:job,articleId:article,generationId:"gen-"+i,reason:"Actual generated candidate is visibly unrelated to this article"});
+ assert.deepEqual(h.rejections.map(x=>x.attemptNumber),[1,2,3,4,5]);
+ assert.throws(()=>appendCoverRejection(h,{jobId:job,articleId:article,reason:"A sixth generation would violate the five-attempt budget"}),/exhausted/);
+ assert.throws(()=>appendCoverRejection({jobId:job,articleId:article,rejections:[]},{jobId:job,articleId:"00000000-0000-4000-8000-000000000000",reason:"Article identity is wrong, so this record must fail closed"}),/conflict/);
 });

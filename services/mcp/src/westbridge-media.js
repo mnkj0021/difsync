@@ -96,19 +96,62 @@ export async function publishReviewedCover(input, options={}){
     if (created && !attached) await fsp.unlink(final).catch(()=>{});
   }
 }
+/**
+ * Deterministic audit record assembly, independent of disk I/O.
+ * An actual generated candidate counts once; retries of the same generationId
+ * must not silently use another of the five allowed attempts.
+ */
+export function appendCoverRejection(history,input,now=new Date().toISOString()) {
+  const jobId=validateId(input.jobId),articleId=validateId(input.articleId);
+  if(typeof input.reason!=="string"||input.reason.trim().length<25||input.reason.length>600)
+    throw Error("Concrete editorial failure reason required");
+  if(!history||history.jobId!==jobId||history.articleId!==articleId||
+     !Array.isArray(history.rejections)||history.rejections.length>=5)
+    throw Error("Review history conflict or five attempts exhausted");
+  const generationId=typeof input.generationId==="string"?input.generationId.trim().slice(0,128):"";
+  if(generationId && history.rejections.some(entry=>entry.generationId===generationId))
+    throw Error("Generation already rejected; refusing duplicate attempt");
+  const next=history.rejections.length+1;
+  return {
+    jobId, articleId,
+    rejections:[...history.rejections,{
+      attemptNumber:next,reason:input.reason.trim(),generationId,at:now
+    }]
+  };
+}
 export async function recordRejectedCover(input) {
   const jobId=validateId(input.jobId),articleId=validateId(input.articleId);
-  if(typeof input.reason!=="string"||input.reason.trim().length<25||input.reason.length>600)throw Error("Concrete reason required");
+  if(typeof input.reason!=="string"||input.reason.trim().length<25||input.reason.length>600)
+    throw Error("Concrete editorial failure reason required");
   await fsp.mkdir(REJECTED,{recursive:true,mode:0o700});
   const dest=path.join(REJECTED,jobId+".json");
-  let data={jobId,articleId,rejections:[]};
-  try{data=JSON.parse(await fsp.readFile(dest,"utf8"))}catch(e){if(e.code!=="ENOENT")throw e}
-  if(data.jobId!==jobId||data.articleId!==articleId||!Array.isArray(data.rejections)||data.rejections.length>=5)throw Error("Review history conflict or five attempts exhausted");
-  data.rejections.push({attemptNumber:data.rejections.length+1,reason:input.reason,generationId:String(input.generationId||"").slice(0,128),at:new Date().toISOString()});
-  const temp=dest+"."+crypto.randomUUID()+".tmp";
-  await fsp.writeFile(temp,JSON.stringify(data,null,2),{flag:"wx",mode:0o600});
-  await fsp.rename(temp,dest);
-  return {ok:true,jobId,articleId,rejectedGenerations:data.rejections.length,remainingAttempts:5-data.rejections.length};
+  // Exclusive lock prevents two simultaneous workers from overwriting each
+  // other's rejection records or consuming attempts for the same candidate.
+  // Fail closed on an orphaned lock; operator must review before recovery.
+  const lock=dest+".lock";
+  let handle;
+  try {
+    handle=await fsp.open(lock,"wx",0o600);
+  } catch (error) {
+    if(error?.code==="EEXIST")throw Error("Cover rejection already in progress; retry after audit");
+    throw error;
+  }
+  try {
+    let history={jobId,articleId,rejections:[]};
+    try {history=JSON.parse(await fsp.readFile(dest,"utf8"))}
+    catch(error){if(error?.code!=="ENOENT")throw error}
+    const data=appendCoverRejection(history,input);
+    const temp=dest+"."+crypto.randomUUID()+".tmp";
+    try{
+      await fsp.writeFile(temp,JSON.stringify(data,null,2),{flag:"wx",mode:0o600});
+      await fsp.rename(temp,dest);
+    }finally{await fsp.unlink(temp).catch(()=>{})}
+    return {ok:true,jobId,articleId,rejectedGenerations:data.rejections.length,
+      remainingAttempts:5-data.rejections.length};
+  } finally {
+    await handle.close();
+    await fsp.unlink(lock);
+  }
 }
 /**
  * Enrich the existing read-only Westbridge queue with Oracle's authoritative
