@@ -165,22 +165,47 @@ export async function withCoverReviewCounts(queue, options = {}) {
     const jobId = validateId(job.jobId);
     const articleId = validateId(job.articleId);
     let count = 0;
+    let lastEditorialRejection = null;
     try {
       const record = JSON.parse(await readFile(path.join(REJECTED, jobId + ".json"), "utf8"));
       if (record.jobId !== jobId || record.articleId !== articleId || !Array.isArray(record.rejections) ||
-          record.rejections.length > 5) throw Error("Oracle review history invalid for " + jobId);
+          record.rejections.length > 5 ||
+          record.rejections.some(entry => typeof entry.reason !== "string"))
+        throw Error("Oracle review history invalid for " + jobId);
       count = record.rejections.length;
+      if (count > 0) {
+        const last = record.rejections[count - 1];
+        lastEditorialRejection = {
+          reason: last.reason.slice(0, 600),
+          at: typeof last.at === "string" ? last.at : null,
+          generationId: typeof last.generationId === "string" ? last.generationId : null
+        };
+      }
     } catch (error) {
       if (error?.code !== "ENOENT") throw error;
     }
     return { ...job, rejectedGenerations: count, remainingAttempts: 5 - count,
-      nextAttemptNumber: count < 5 ? count + 1 : null };
+      nextAttemptNumber: count < 5 ? count + 1 : null,
+      ...(count === 5 ? { lastEditorialRejection } : {}) };
   }));
   // A spent job must not block fresh work just because Westbridge still
   // reports its article as coverless. Keep the raw count for diagnostics.
   // Prefer genuinely fresh articles, then lower retry counts.
   const eligible = jobs.filter(job => job.remainingAttempts > 0);
   const exhausted = jobs.length - eligible.length;
+  // Auditable recovery index only: do NOT reopen or zero the five-attempt
+  // counter. Each job requires an explicit human editorial decision before
+  // any separate recovery implementation could consider more generation.
+  const exhaustedReview = jobs.filter(job => job.remainingAttempts === 0).map(job => ({
+    jobId: job.jobId,
+    articleId: job.articleId,
+    title: job.title,
+    slug: job.slug,
+    rejectedGenerations: job.rejectedGenerations,
+    lastEditorialRejection: job.lastEditorialRejection,
+    recoveryState: "manual-editorial-review-required",
+    automaticGenerationAllowed: false
+  }));
   // Keep Westbridge's authoritative createdAt ASC / jobId ASC FIFO order.
   // Never re-sort on generation failures, title, image category, or retry count.
   const rawPending = typeof queue.pending === "number" ? queue.pending : jobs.length;
@@ -190,6 +215,7 @@ export async function withCoverReviewCounts(queue, options = {}) {
     pending: queue.truncated ? Math.max(eligible.length, rawPending - exhausted) : eligible.length,
     eligibleListed: eligible.length,
     exhaustedListed: exhausted,
+    exhaustedReview,
     // The worker must see only ONE article at a time. Next call after
     // completion/final rejection moves to the next oldest eligible item.
     nextJob: eligible[0] || null,
