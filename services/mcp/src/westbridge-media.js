@@ -47,15 +47,26 @@ function decodeWebp(base64) {
   if(width!==1022||height!==520)throw Error("Expected exactly 1022x520 WebP");
   return buffer;
 }
-function validateReview(review,jobId,articleId,sha) {
+export function validateReview(review,jobId,articleId,sha) {
+  const auto=review?.reviewMode==="automatic-illustration";
   if(!review || typeof review!=="object" ||
     review.source!=="chatgpt-image-generator"||review.decision!=="approved"||
     review.jobId!==jobId || review.articleId!==articleId ||
     review.imageSha256?.toLowerCase()!==sha ||
-    !Number.isInteger(review.attemptNumber)||review.attemptNumber<1||review.attemptNumber>5 ||
-    typeof review.confidence!=="number"||review.confidence<0.9||review.confidence>1 ||
-    typeof review.reason!=="string"||review.reason.trim().length<40||review.reason.length>600||
-    !REVIEW_FLAGS.every(k=>review[k]===true)) throw Error("Editorial review failed");
+    !Number.isInteger(review.attemptNumber)||review.attemptNumber<1||
+    review.attemptNumber>(auto?1000:5)||
+    typeof review.reason!=="string"||review.reason.trim().length<40||review.reason.length>600)
+    throw Error("Invalid ChatGPT cover provenance or identity");
+  if(auto){
+    // AUTO mode is technical approval, never a fabricated editorial review.
+    // False flags mean 'not verified', NOT 'known false'.
+    if(review.confidence!==0||!REVIEW_FLAGS.every(k=>review[k]===false)||
+       !review.reason.startsWith("Automatic illustrative cover:"))
+      throw Error("Automatic illustration review must disclose unverified relevance");
+  } else if(typeof review.confidence!=="number"||review.confidence<0.9||
+       review.confidence>1||!REVIEW_FLAGS.every(k=>review[k]===true)) {
+    throw Error("Editorial review failed");
+  }
 }
 function nameFor(jobId,hash){return validateId(jobId)+"-"+hash+".webp"}
 export function publicMediaUrl(jobId,sha){if(!SHA.test(sha))throw Error("Invalid SHA");return URL_ROOT+nameFor(jobId,sha)}
@@ -68,7 +79,8 @@ export async function publishReviewedCover(input, options={}){
   try{history=JSON.parse(await fsp.readFile(path.join(REJECTED,jobId+".json"),"utf8"))}
   catch(e){if(e.code!=="ENOENT")throw e}
   if(history.jobId!==jobId || history.articleId!==articleId || !Array.isArray(history.rejections) ||
-     history.rejections.length>=5 || input.review.attemptNumber!==history.rejections.length+1)
+     (input.review.reviewMode!=="automatic-illustration" && history.rejections.length>=5) ||
+     input.review.attemptNumber!==history.rejections.length+1)
     throw Error("Generation attempt count does not match the archived review history");
   const filename=nameFor(jobId,sha), imageUrl=publicMediaUrl(jobId,sha);
   await fsp.mkdir(APPROVED,{recursive:true,mode:0o700});
@@ -91,7 +103,9 @@ export async function publishReviewedCover(input, options={}){
     if(!outcome||outcome.ok!==true||outcome.status!=="completed")throw Error("Westbridge refused cover attachment");
     attached = true;
     // The approved URL can be recovered if metadata persist fails.
-    const record={jobId,articleId,imageUrl,imageSha256:sha,bytes:bytes.length,review:input.review,publishedAt:new Date().toISOString()};
+    const record={jobId,articleId,imageUrl,imageSha256:sha,bytes:bytes.length,
+      reviewMode:input.review.reviewMode||"editorially-reviewed",
+      review:input.review,publishedAt:new Date().toISOString()};
     await fsp.writeFile(path.join(APPROVED,filename+".json"),JSON.stringify(record,null,2),{flag:"w",mode:0o600});
     return {ok:true,status:"completed",jobId,articleId,imageUrl,imageSha256:sha,bytes:bytes.length};
   } finally {
@@ -168,6 +182,9 @@ export async function recordRejectedCover(input) {
  */
 export async function withCoverReviewCounts(queue, options = {}) {
   const readFile = options.readFile || fsp.readFile;
+  // Default on: the owner explicitly chose automatic decorative covers.
+  // Manual-review mode remains available by setting this environment to 0.
+  const autoApprove=options.autoApprove ?? process.env.WESTBRIDGE_COVER_AUTO_APPROVAL!=="0";
   const nowMs=options.now===undefined?Date.now():new Date(options.now).getTime();
   if(!Number.isFinite(nowMs))throw Error("Invalid queue clock");
   if (!queue || queue.ok !== true || !Array.isArray(queue.jobs)) throw Error("Invalid Westbridge queue response");
@@ -205,29 +222,34 @@ export async function withCoverReviewCounts(queue, options = {}) {
     } catch (error) {
       if (error?.code !== "ENOENT") throw error;
     }
-    return { ...job, rejectedGenerations: count, remainingAttempts: 5 - count,
-      nextAttemptNumber: count < 5 ? count + 1 : null, deferredUntil,
+    return { ...job, rejectedGenerations: count,
+      remainingAttempts: autoApprove ? null : 5-count,
+      nextAttemptNumber: autoApprove ? count+1 : (count<5?count+1:null),
+      deferredUntil: autoApprove ? null : deferredUntil,
+      ...(autoApprove?{reviewMode:"automatic-illustration"}:{}),
       ...(count === 5 ? { lastEditorialRejection } : {}) };
   }));
   // A spent job must not block fresh work just because Westbridge still
   // reports its article as coverless. Keep the raw count for diagnostics.
   // Prefer genuinely fresh articles, then lower retry counts.
-  const eligible = jobs.filter(job => job.remainingAttempts > 0);
+  const eligible = autoApprove ? jobs : jobs.filter(job => job.remainingAttempts > 0);
   const ready = eligible.filter(job => job.deferredUntil === null);
   const deferred = eligible.filter(job => job.deferredUntil !== null);
   const exhausted = jobs.length - eligible.length;
+  const archivedExhaustedListed=jobs.filter(job=>job.rejectedGenerations===5).length;
   // Auditable recovery index only: do NOT reopen or zero the five-attempt
   // counter. Each job requires an explicit human editorial decision before
   // any separate recovery implementation could consider more generation.
-  const exhaustedReview = jobs.filter(job => job.remainingAttempts === 0).map(job => ({
+  const exhaustedReview = jobs.filter(job => job.rejectedGenerations === 5).map(job => ({
     jobId: job.jobId,
     articleId: job.articleId,
     title: job.title,
     slug: job.slug,
     rejectedGenerations: job.rejectedGenerations,
     lastEditorialRejection: job.lastEditorialRejection,
-    recoveryState: "manual-editorial-review-required",
-    automaticGenerationAllowed: false
+    recoveryState: autoApprove ? "historic-exhaustion-superseded-by-owner-auto-mode" :
+      "manual-editorial-review-required",
+    automaticGenerationAllowed: autoApprove
   }));
   // Preserve original FIFO among READY articles. A failed job does not
   // permanently block all later jobs while it cools down.
@@ -252,13 +274,16 @@ export async function withCoverReviewCounts(queue, options = {}) {
     nextReadyAt,
     deferredReview,
     exhaustedListed: exhausted,
+    archivedExhaustedListed,
     exhaustedReview,
+    reviewPolicy: autoApprove ? "automatic-illustration-no-editorial-rejections" : "manual-editorial-review",
     // The worker must see ONE ready article at a time; never re-sort jobs.
     // It can continue past a rejected article without bypassing exhaustion.
     nextJob: ready[0] || null,
     listedCount: Math.min(1, ready.length),
     selectionPolicy: "fifo-oldest-eligible",
-    deferPolicy: "per-article-12h-after-editorial-rejection",
+    deferPolicy: autoApprove ? "disabled-automatic-illustrations" :
+      "per-article-12h-after-editorial-rejection",
     jobs: ready.slice(0, 1)
   };
 }
@@ -271,7 +296,9 @@ export async function publicManifest(){
     try{
       const m=JSON.parse(await fsp.readFile(path.join(APPROVED,n),"utf8"));
       if(m.imageUrl===URL_ROOT+n.slice(0,-5) && UUID.test(m.jobId) && UUID.test(m.articleId)&&SHA.test(m.imageSha256)){
-        objects.push({jobId:m.jobId,articleId:m.articleId,url:m.imageUrl,filename:n.slice(0,-5),sizeBytes:m.bytes,publishedAt:m.publishedAt});
+        objects.push({jobId:m.jobId,articleId:m.articleId,url:m.imageUrl,
+          filename:n.slice(0,-5),sizeBytes:m.bytes,publishedAt:m.publishedAt,
+          reviewMode:m.reviewMode||"editorially-reviewed"});
       }
     }catch{}
   }
