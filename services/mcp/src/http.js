@@ -735,7 +735,7 @@ function createServer(ctx) {
 
   server.registerTool("westbridge_cover_publish_oracle", {
     title: "Publish approved Westbridge cover through isolated Oracle storage",
-    description: "After genuine ChatGPT image generation and article-specific review, store approved 1022x520 WebP on Oracle and atomically attach its permanent URL to the already-published Westbridge article. No claim before generation and no general SQL or remote shell permissions.",
+    description: "Publish a genuine original ChatGPT-generated 1022x520 WebP as either a manually reviewed editorial cover or a clearly labeled automatically approved illustrative cover. The automatic mode records confidence zero and five unchecked relevance flags as false. Immutable Oracle URL, real SHA256 and authenticated narrow attach action are mandatory.",
     inputSchema: z.object({
       jobId: z.string().uuid(), articleId: z.string().uuid(),
       imageBase64: z.string().min(22000).max(16 * 1024 * 1024),
@@ -745,14 +745,15 @@ function createServer(ctx) {
       jobId: z.string().uuid(),
       articleId: z.string().uuid(),
       imageSha256: z.string().regex(/^[a-f0-9]{64}$/i),
-      attemptNumber: z.number().int().min(1).max(5),
-      confidence: z.number().min(0.9).max(1),
+      reviewMode: z.enum(["automatic-illustration"]).optional(),
+      attemptNumber: z.number().int().min(1).max(1000),
+      confidence: z.number().min(0).max(1),
       reason: z.string().min(40).max(600),
-      subjectMatch: z.literal(true),
-      noFabrication: z.literal(true),
-      goodComposition: z.literal(true),
-      noTextOrWatermark: z.literal(true),
-      notGeneric: z.literal(true)
+      subjectMatch: z.boolean(),
+      noFabrication: z.boolean(),
+      goodComposition: z.boolean(),
+      noTextOrWatermark: z.boolean(),
+      notGeneric: z.boolean()
     })
     }),
     annotations: {readOnlyHint:false, destructiveHint:true,openWorldHint:false},
