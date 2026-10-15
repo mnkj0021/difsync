@@ -16,6 +16,9 @@ const SHA = /^[\da-f]{64}$/i;
 const MAX_BYTES = 12 * 1024 * 1024;
 // Valid, visually reviewed 1022x520 WebP photographs can compress below 90KB.
 const MIN_BYTES = 16_384;
+// Editorial failures only defer THEIR job, letting later FIFO jobs proceed.
+// Archive every actual generation attempt: cooldown never restores attempts.
+export const EDITORIAL_COOLDOWN_MS = 12 * 60 * 60 * 1000;
 const REVIEW_FLAGS = ["subjectMatch","noFabrication","goodComposition","noTextOrWatermark","notGeneric"];
 
 function validateId(id) {
@@ -112,10 +115,14 @@ export function appendCoverRejection(history,input,now=new Date().toISOString())
   if(generationId && history.rejections.some(entry=>entry.generationId===generationId))
     throw Error("Generation already rejected; refusing duplicate attempt");
   const next=history.rejections.length+1;
+  const atMs=Date.parse(now);
+  if(!Number.isFinite(atMs))throw Error("Invalid editorial rejection timestamp");
+  const deferredUntil=next<5?new Date(atMs+EDITORIAL_COOLDOWN_MS).toISOString():null;
   return {
     jobId, articleId,
     rejections:[...history.rejections,{
-      attemptNumber:next,reason:input.reason.trim(),generationId,at:now
+      attemptNumber:next,reason:input.reason.trim(),generationId,at:now,
+      ...(deferredUntil?{deferredUntil}:{})
     }]
   };
 }
@@ -147,7 +154,8 @@ export async function recordRejectedCover(input) {
       await fsp.rename(temp,dest);
     }finally{await fsp.unlink(temp).catch(()=>{})}
     return {ok:true,jobId,articleId,rejectedGenerations:data.rejections.length,
-      remainingAttempts:5-data.rejections.length};
+      remainingAttempts:5-data.rejections.length,
+      deferredUntil:data.rejections.at(-1)?.deferredUntil||null};
   } finally {
     await handle.close();
     await fsp.unlink(lock);
@@ -160,12 +168,15 @@ export async function recordRejectedCover(input) {
  */
 export async function withCoverReviewCounts(queue, options = {}) {
   const readFile = options.readFile || fsp.readFile;
+  const nowMs=options.now===undefined?Date.now():new Date(options.now).getTime();
+  if(!Number.isFinite(nowMs))throw Error("Invalid queue clock");
   if (!queue || queue.ok !== true || !Array.isArray(queue.jobs)) throw Error("Invalid Westbridge queue response");
   const jobs = await Promise.all(queue.jobs.map(async job => {
     const jobId = validateId(job.jobId);
     const articleId = validateId(job.articleId);
     let count = 0;
     let lastEditorialRejection = null;
+    let deferredUntil = null;
     try {
       const record = JSON.parse(await readFile(path.join(REJECTED, jobId + ".json"), "utf8"));
       if (record.jobId !== jobId || record.articleId !== articleId || !Array.isArray(record.rejections) ||
@@ -180,18 +191,30 @@ export async function withCoverReviewCounts(queue, options = {}) {
           at: typeof last.at === "string" ? last.at : null,
           generationId: typeof last.generationId === "string" ? last.generationId : null
         };
+        if(count<5){
+          // New records have explicit deferUntil. Historical records retain
+          // accurate timestamped attempts and receive the same bounded window.
+          const saved=typeof last.deferredUntil==="string"?Date.parse(last.deferredUntil):NaN;
+          const created=typeof last.at==="string"?Date.parse(last.at):NaN;
+          const untilMs=Number.isFinite(saved)?saved:
+            (Number.isFinite(created)?created+EDITORIAL_COOLDOWN_MS:NaN);
+          if(Number.isFinite(untilMs)&&untilMs>nowMs)
+            deferredUntil=new Date(untilMs).toISOString();
+        }
       }
     } catch (error) {
       if (error?.code !== "ENOENT") throw error;
     }
     return { ...job, rejectedGenerations: count, remainingAttempts: 5 - count,
-      nextAttemptNumber: count < 5 ? count + 1 : null,
+      nextAttemptNumber: count < 5 ? count + 1 : null, deferredUntil,
       ...(count === 5 ? { lastEditorialRejection } : {}) };
   }));
   // A spent job must not block fresh work just because Westbridge still
   // reports its article as coverless. Keep the raw count for diagnostics.
   // Prefer genuinely fresh articles, then lower retry counts.
   const eligible = jobs.filter(job => job.remainingAttempts > 0);
+  const ready = eligible.filter(job => job.deferredUntil === null);
+  const deferred = eligible.filter(job => job.deferredUntil !== null);
   const exhausted = jobs.length - eligible.length;
   // Auditable recovery index only: do NOT reopen or zero the five-attempt
   // counter. Each job requires an explicit human editorial decision before
@@ -206,22 +229,37 @@ export async function withCoverReviewCounts(queue, options = {}) {
     recoveryState: "manual-editorial-review-required",
     automaticGenerationAllowed: false
   }));
-  // Keep Westbridge's authoritative createdAt ASC / jobId ASC FIFO order.
-  // Never re-sort on generation failures, title, image category, or retry count.
+  // Preserve original FIFO among READY articles. A failed job does not
+  // permanently block all later jobs while it cools down.
+  const deferredReview=deferred.map(job=>({
+    jobId:job.jobId,articleId:job.articleId,title:job.title,
+    rejectedGenerations:job.rejectedGenerations,
+    remainingAttempts:job.remainingAttempts,
+    nextAttemptNumber:job.nextAttemptNumber,
+    deferredUntil:job.deferredUntil,
+    recoveryState:"editorial-cooldown"
+  }));
+  const nextReadyAt=deferred.length?
+    deferred.map(job=>job.deferredUntil).sort()[0]:null;
   const rawPending = typeof queue.pending === "number" ? queue.pending : jobs.length;
   return {
     ...queue,
     rawPending,
     pending: queue.truncated ? Math.max(eligible.length, rawPending - exhausted) : eligible.length,
     eligibleListed: eligible.length,
+    readyListed: ready.length,
+    deferredListed: deferred.length,
+    nextReadyAt,
+    deferredReview,
     exhaustedListed: exhausted,
     exhaustedReview,
-    // The worker must see only ONE article at a time. Next call after
-    // completion/final rejection moves to the next oldest eligible item.
-    nextJob: eligible[0] || null,
-    listedCount: Math.min(1, eligible.length),
+    // The worker must see ONE ready article at a time; never re-sort jobs.
+    // It can continue past a rejected article without bypassing exhaustion.
+    nextJob: ready[0] || null,
+    listedCount: Math.min(1, ready.length),
     selectionPolicy: "fifo-oldest-eligible",
-    jobs: eligible.slice(0, 1)
+    deferPolicy: "per-article-12h-after-editorial-rejection",
+    jobs: ready.slice(0, 1)
   };
 }
 
