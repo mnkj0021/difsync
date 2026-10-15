@@ -1,6 +1,6 @@
 import {test} from "node:test";
 import assert from "node:assert/strict";
-import {publicMediaUrl,publicManifest,publishReviewedCover,withCoverReviewCounts,appendCoverRejection} from "./westbridge-media.js";
+import {publicMediaUrl,publicManifest,publishReviewedCover,withCoverReviewCounts,appendCoverRejection,EDITORIAL_COOLDOWN_MS} from "./westbridge-media.js";
 import {ACTIONS} from "./westbridge-covers.js";
 
 const job="f00bdc3c-82db-4fe7-8c53-aa6d1715f6ba";
@@ -153,4 +153,87 @@ test("read-only audit remains empty when no article exhausted",async()=>{
  assert.equal(output.exhaustedReview.length,0);
  assert.equal(output.nextJob.jobId,job);
  assert.equal(output.nextJob.nextAttemptNumber,1);
+});
+
+
+test("one wrong-topic generation defers only its own FIFO article",async()=>{
+ const now="2026-10-15T05:00:00.000Z";
+ const newerId="59eb7a2d-980b-4656-9118-ad0b4b52484e";
+ const newerArticle="3adbb98a-6d76-4120-979c-a2173b1b639d";
+ const original={jobId:job,articleId:article,rejections:[]};
+ const updated=appendCoverRejection(original,{jobId:job,articleId:article,
+   generationId:"genuine-original-asset",reason:"Actual image contains an unrelated hiker instead of current subject"},now);
+ assert.equal(updated.rejections.length,1);
+ assert.equal(original.rejections.length,0);
+ assert.equal(updated.rejections[0].deferredUntil,"2026-10-15T17:00:00.000Z");
+ const jobs=[{jobId:job,articleId:article,title:"Oldest"},
+   {jobId:newerId,articleId:newerArticle,title:"Next oldest"}];
+ const readFile=async p=>{
+   if(p.endsWith(job+".json"))return JSON.stringify(updated);
+   const error=new Error("ENOENT");error.code="ENOENT";throw error;
+ };
+ const response=await withCoverReviewCounts({ok:true,pending:2,jobs},{now:"2026-10-15T06:00:00.000Z",readFile});
+ assert.equal(response.selectionPolicy,"fifo-oldest-eligible");
+ assert.equal(response.deferPolicy,"per-article-12h-after-editorial-rejection");
+ assert.equal(response.pending,2); // Still coverless, never silently removed.
+ assert.equal(response.deferredListed,1);
+ assert.equal(response.readyListed,1);
+ assert.equal(response.deferredReview[0].rejectedGenerations,1);
+ assert.equal(response.deferredReview[0].remainingAttempts,4);
+ assert.equal(response.nextJob.jobId,newerId);
+ assert.deepEqual(response.jobs.map(x=>x.jobId),[newerId]);
+ const cooled=await withCoverReviewCounts({ok:true,pending:2,jobs},{now:"2026-10-15T17:00:00.000Z",readFile});
+ assert.equal(cooled.nextJob.jobId,job); // Original FIFO order resumes on expiry.
+ assert.equal(cooled.deferredListed,0);
+});
+
+test("old archived rejection timestamps receive a finite cooldown without reset",async()=>{
+ const prior={jobId:job,articleId:article,rejections:[
+   {attemptNumber:1,reason:"Wrong visual topic",at:"2026-10-15T08:30:00.000Z",generationId:"original-old-gen"}
+ ]};
+ const queue={ok:true,pending:1,jobs:[{jobId:job,articleId:article}]};
+ const readFile=async()=>JSON.stringify(prior);
+ const deferred=await withCoverReviewCounts(queue,{readFile,now:"2026-10-15T09:00:00.000Z"});
+ assert.equal(deferred.nextJob,null);
+ assert.equal(deferred.pending,1);
+ assert.equal(deferred.deferredListed,1);
+ assert.equal(deferred.nextReadyAt,"2026-10-15T20:30:00.000Z");
+ const ready=await withCoverReviewCounts(queue,{readFile,now:"2026-10-15T20:30:00.000Z"});
+ assert.equal(ready.nextJob.nextAttemptNumber,2);
+ assert.equal(ready.nextJob.rejectedGenerations,1);
+});
+
+test("all cooling articles yield zero READY jobs without losing pending count",async()=>{
+ const secondId="59eb7a2d-980b-4656-9118-ad0b4b52484e";
+ const secondArticle="3adbb98a-6d76-4120-979c-a2173b1b639d";
+ const list=[{jobId:job,articleId:article},{jobId:secondId,articleId:secondArticle}];
+ const readFile=async p=>JSON.stringify({
+   jobId:p.endsWith(job+".json")?job:secondId,
+   articleId:p.endsWith(job+".json")?article:secondArticle,
+   rejections:[{reason:"Unrelated actual generated photo",at:"2026-10-15T09:00:00.000Z"}]
+ });
+ const result=await withCoverReviewCounts({ok:true,pending:2,jobs:list},{
+   readFile,now:"2026-10-15T10:00:00.000Z"
+ });
+ assert.equal(result.pending,2);
+ assert.equal(result.readyListed,0);
+ assert.equal(result.deferredListed,2);
+ assert.equal(result.nextJob,null);
+ assert.deepEqual(result.jobs,[]);
+});
+
+test("fifth rejection exhausts permanently, no cooldown or sixth generation",()=>{
+ let h={jobId:job,articleId:article,rejections:[]};
+ const start=Date.parse("2026-10-15T01:00:00.000Z");
+ for(let i=0;i<5;i++)h=appendCoverRejection(h,{jobId:job,articleId:article,
+   generationId:"gen-number-"+i,reason:"Genuinely unrelated generated pixels for article"},
+   new Date(start+i*1000).toISOString());
+ assert.equal(h.rejections.length,5);
+ assert.equal(h.rejections[4].deferredUntil,undefined);
+ assert.throws(()=>appendCoverRejection(h,{jobId:job,articleId:article,
+   reason:"This sixth attempt must not be permitted"}),/exhausted/);
+});
+
+test("cooldown duration is bounded to 12 hours",()=>{
+ assert.equal(EDITORIAL_COOLDOWN_MS,12*60*60*1000);
 });
