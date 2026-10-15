@@ -128,3 +128,29 @@ test("rejection history is strictly article-bound and five-attempt limited",()=>
  assert.throws(()=>appendCoverRejection(h,{jobId:job,articleId:article,reason:"A sixth generation would violate the five-attempt budget"}),/exhausted/);
  assert.throws(()=>appendCoverRejection({jobId:job,articleId:article,rejections:[]},{jobId:job,articleId:"00000000-0000-4000-8000-000000000000",reason:"Article identity is wrong, so this record must fail closed"}),/conflict/);
 });
+
+test("exhausted articles expose an immutable audit summary but remain unselectable",async()=>{
+ const rejected=Array.from({length:5},(_,i)=>({attemptNumber:i+1,generationId:"gen-"+i,
+   reason:"Visually unrelated candidate number "+i+" cannot illustrate article",at:"2026-10-15T00:00:00.000Z"}));
+ const readFile=async()=>JSON.stringify({jobId:job,articleId:article,rejections:rejected});
+ const output=await withCoverReviewCounts({ok:true,pending:1,jobs:[{jobId:job,articleId:article,
+   title:"Article needing human review",slug:"article-needs-review"}]},{readFile});
+ assert.equal(output.pending,0);
+ assert.equal(output.nextJob,null);
+ assert.equal(output.jobs.length,0);
+ assert.equal(output.exhaustedReview.length,1);
+ const entry=output.exhaustedReview[0];
+ assert.equal(entry.rejectedGenerations,5);
+ assert.equal(entry.automaticGenerationAllowed,false);
+ assert.equal(entry.recoveryState,"manual-editorial-review-required");
+ assert.equal(entry.lastEditorialRejection.generationId,"gen-4");
+ assert.equal(entry.lastEditorialRejection.reason,rejected[4].reason);
+});
+test("read-only audit remains empty when no article exhausted",async()=>{
+ const readFile=async()=>{const e=new Error("ENOENT");e.code="ENOENT";throw e};
+ const output=await withCoverReviewCounts({ok:true,pending:1,jobs:[{jobId:job,articleId:article,
+   title:"New article"}]},{readFile});
+ assert.equal(output.exhaustedReview.length,0);
+ assert.equal(output.nextJob.jobId,job);
+ assert.equal(output.nextJob.nextAttemptNumber,1);
+});
